@@ -1,0 +1,93 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+robotarm_env/
+venv/
+env/
+ENV/
+.venv/
+
+# PyCharm
+.idea/
+
+# VS Code
+.vscode/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Training outputs
+logs/
+tensorboard_logs/
+wandb/
+*.log
+
+# Model checkpoints
+checkpoints/backup/
+models/backup/
+*.pth.backup
+*.h5.backup
+
+# Results and plots
+results/temp/
+*.png.backup
+*.jpg.backup
+training_plots_temp/
+
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
+
+# Configuration overrides
+config/local_*.yaml
+.env
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Documentation build
+docs/_build/
+docs/build/
+
+# Profiling
+*.prof
+
+# Large data files
+data/large/
+*.npz.large
+*.h5.large
