@@ -15,8 +15,10 @@ from environments.robot_4dof_env import Robot4DOFEnv
 from agents.ddpg_agent import DDPGAgent
 from replay_memory.replay_buffer import ReplayBuffer
 from utils.her import HER
+from models.dynamics_model import DynamicsModel
+from mbpo_trainer import MBPOTrainer
 
-def train_ddpg(episodes: int = 300, render: bool = False) -> Dict:
+def train_ddpg(episodes: int = 5, render: bool = False) -> Dict:
     """
     Train DDPG agent on 4-DOF robot arm task.
     
@@ -49,112 +51,88 @@ def train_ddpg(episodes: int = 300, render: bool = False) -> Dict:
     
     # Initialize environment and agent
     env = Robot4DOFEnv(config=env_config)
+    state_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.shape[0]
     agent = DDPGAgent(
-        state_dim=env.observation_space.shape[0],
-        action_dim=env.action_space.shape[0],
+        state_dim=state_dim,
+        action_dim=action_dim,
         config=agent_config
     )
-    
     # Initialize replay buffer and HER
     replay_buffer = ReplayBuffer(capacity=100000)
     her = HER(replay_buffer=replay_buffer, k=4, strategy='future')
+    # Initialize dynamics model (model-based)
+    dynamics_model = DynamicsModel(state_dim, action_dim)
     
     # Training statistics
     episode_rewards = []
     success_rate_history = []
     distance_history = []
     
-    print("🚀 Starting DDPG Training for 4-DOF Robot Arm")
+    print("Starting DDPG Training for 4-DOF Robot Arm")
     print(f"Episodes: {episodes}, Max Steps: {env_config['max_steps']}")
     print("-" * 60)
     
     for episode in range(episodes):
+        # Reset environment and episode stats
         state, info = env.reset()
         episode_reward = 0.0
         episode_success = False
         episode_distances = []
-        
         # Store episode trajectory for HER
         episode_states = []
         episode_actions = []
-        episode_rewards = []
+        episode_rewards_ep = []
         episode_next_states = []
         episode_dones = []
-        
         for step in range(env_config['max_steps']):
-            # Select action
             action = agent.act(state, add_noise=True)
-            
-            # Take step
             next_state, reward, terminated, truncated, info = env.step(action)
             done = terminated or truncated
-            
             # Store transition
             episode_states.append(state.copy())
             episode_actions.append(action.copy())
-            episode_rewards.append(reward)
+            episode_rewards_ep.append(reward)
             episode_next_states.append(next_state.copy())
             episode_dones.append(done)
-            
             # Update statistics
             episode_reward += reward
             episode_distances.append(info['distance_to_target'])
-            
             if info.get('goal_reached', False):
                 episode_success = True
-            
-            # Render if requested
             if render and episode % 50 == 0:
                 env.render(mode='human')
-            
             state = next_state
-            
             if done:
                 break
-        
-        # Store episode in HER buffer
-        her.store_episode({
-            'states': np.array(episode_states),
-            'actions': np.array(episode_actions),
-            'rewards': np.array(episode_rewards),
-            'next_states': np.array(episode_next_states),
-            'dones': np.array(episode_dones),
-            'achieved_goals': np.array([info['end_effector_position'] for info in [env._get_info()]]),
-            'desired_goals': np.array([info['target_position'] for info in [env._get_info()]])
-        })
-        
-        # Train agent if we have enough samples
-        if len(replay_buffer) > 1000:
-            batch_size = 64
-            for _ in range(min(step, 40)):  # Multiple updates per episode
+        # HER: add episode to buffer
+        her.add_episode(episode_states, episode_actions, episode_rewards_ep, episode_next_states, episode_dones, info)
+        # Agent update
+        batch_size = 64
+        if len(replay_buffer) > batch_size:
+            for _ in range(min(step, 40)):
                 batch = replay_buffer.sample(batch_size)
-                metrics = agent.train_step(batch)
-        
+                agent.train_step(batch)
         # Update statistics
         episode_rewards.append(episode_reward)
-        
-        # Calculate success rate over last 100 episodes
         recent_episodes = min(episode + 1, 100)
         recent_successes = sum(1 for i in range(max(0, episode - 99), episode + 1) 
                               if i < len(success_rate_history) and success_rate_history[i])
         success_rate = recent_successes / recent_episodes if recent_episodes > 0 else 0
-        
         success_rate_history.append(episode_success)
         distance_history.append(np.mean(episode_distances) if episode_distances else float('inf'))
-        
-        # Print progress
-        if episode % 20 == 0 or episode_success:
-            status_icon = "✅" if episode_success else "🔄"
-            print(f"{status_icon} Episode {episode:3d} | "
-                  f"Reward: {episode_reward:6.1f} | "
-                  f"Success Rate: {success_rate:.2%} | "
-                  f"Avg Distance: {distance_history[-1]:.3f}m | "
-                  f"Steps: {step+1}")
+      # Always print progress for every episode
+        status_icon = "✅" if episode_success else "🔄"
+    print(f"{status_icon} Episode {episode:3d} | "
+          f"Reward: {episode_reward:6.1f} | "
+          f"Success Rate: {success_rate:.2%} | "
+          f"Avg Distance: {distance_history[-1]:.3f}m | "
+          f"Steps: {step+1}")
     
     # Save trained model
     os.makedirs('checkpoints', exist_ok=True)
     agent.save_model('checkpoints/ddpg_4dof')
-    print("\n💾 Model saved to checkpoints/ddpg_4dof")
+    print("\n Model saved to checkpoints/ddpg_4dof")
     
     # Plot results
     plot_training_results(episode_rewards, success_rate_history, distance_history)
@@ -176,6 +154,10 @@ def train_ddpg(episodes: int = 300, render: bool = False) -> Dict:
     print(f"Final Success Rate: {final_success_rate:.2%}")
     print(f"Final Average Reward: {final_avg_reward:.1f}")
     
+    # Lưu replay buffer sau khi train
+    os.makedirs('checkpoints', exist_ok=True)
+    replay_buffer.save('checkpoints/replay_buffer.pkl')
+    print("Replay buffer đã được lưu vào checkpoints/replay_buffer.pkl")
     env.close()
     return results
 
@@ -226,13 +208,44 @@ def plot_training_results(rewards: List[float], success_rates: List[bool], dista
     
     # Save plot
     os.makedirs('results', exist_ok=True)
-    plt.savefig('results/training_results.png', dpi=300, bbox_inches='tight')
+    plt.savefig('results/training_results.png', dpi=150, bbox_inches='tight')
     plt.show()
     
-    print("📊 Training plots saved to results/training_results.png")
+    print("Training plots saved to results/training_results.png")
 
 if __name__ == "__main__":
     # Run training
-    results = train_ddpg(episodes=300, render=False)
-    
-    print(f"\\n🎉 Training completed with {results['final_success_rate']:.1%} success rate!")
+    use_mbpo = True  # Đổi thành False nếu muốn dùng train_ddpg truyền thống
+    import time
+    if use_mbpo:
+        env_config = {
+            'max_steps': 200,
+            'success_distance': 0.05,
+            'dense_reward': True,
+            'success_reward': 100.0
+        }
+        agent_config = {
+            'lr_actor': 0.001,
+            'lr_critic': 0.002,
+            'gamma': 0.99,
+            'tau': 0.005,
+            'noise_std': 0.2,
+            'noise_decay': 0.995,
+            'hidden_dims': [256, 128]
+        }
+        trainer = MBPOTrainer(env_config, agent_config, buffer_capacity=100000, ensemble_size=1)
+        trainer.run(episodes=200, max_steps=200, rollout_every=10)
+    else:
+        start_time = time.time()
+        results = train_ddpg(episodes=5, render=False)
+        elapsed_time = time.time() - start_time
+        print(f"\n🎉 Training completed with {results['final_success_rate']:.1%} success rate!")
+        print(f"Total training time: {elapsed_time/60:.2f} minutes ({elapsed_time:.1f} seconds)")
+        print("\n===== POST-TRAINING EVALUATION =====")
+        print(f"Total episodes: {results['total_episodes']}")
+        print(f"Final success rate: {results['final_success_rate']:.2%}")
+        print(f"Average reward (last 100 episodes): {results['final_avg_reward']:.2f}")
+        print(f"Average reward (all episodes): {np.mean(results['episode_rewards']):.2f}")
+        print(f"Average distance (last 100 episodes): {np.mean(results['distance_history'][-100:]) if len(results['distance_history'])>=100 else np.mean(results['distance_history']):.3f}")
+        print(f"Average distance (all episodes): {np.mean(results['distance_history']):.3f}")
+        print("====================================\n")

@@ -16,8 +16,9 @@ from agents.ddpg_agent import DDPGAgent
 from training.curriculum import CurriculumTrainer
 from replay_memory.replay_buffer import ReplayBuffer
 from utils.her import HER
+from models.dynamics_model import DynamicsModel
 
-def train_with_curriculum(total_episodes: int = 300, render: bool = False) -> Dict:
+def train_with_curriculum(total_episodes: int = 2000, render: bool = False) -> Dict:
     """
     Train DDPG agent using curriculum learning.
     
@@ -56,9 +57,11 @@ def train_with_curriculum(total_episodes: int = 300, render: bool = False) -> Di
     
     # Initialize agent
     env_temp = Robot4DOFEnv(config=base_env_config)
+    state_dim = env_temp.observation_space.shape[0]
+    action_dim = env_temp.action_space.shape[0]
     agent = DDPGAgent(
-        state_dim=env_temp.observation_space.shape[0],
-        action_dim=env_temp.action_space.shape[0],
+        state_dim=state_dim,
+        action_dim=action_dim,
         config=agent_config
     )
     env_temp.close()
@@ -66,6 +69,8 @@ def train_with_curriculum(total_episodes: int = 300, render: bool = False) -> Di
     # Initialize replay buffer and HER
     replay_buffer = ReplayBuffer(capacity=200000)  # Larger buffer for curriculum
     her = HER(replay_buffer=replay_buffer, k=4, strategy='future')
+    # Initialize dynamics model (model-based)
+    dynamics_model = DynamicsModel(state_dim, action_dim)
     
     # Initialize curriculum trainer
     curriculum_trainer = CurriculumTrainer(
@@ -73,16 +78,20 @@ def train_with_curriculum(total_episodes: int = 300, render: bool = False) -> Di
         agent=agent
     )
     
-    print(f"🤖 Agent initialized with {sum(p.numel() for p in agent.actor.trainable_variables):,} trainable parameters")
+    print(f"🤖 Agent initialized with {sum(np.prod(p.shape) for p in agent.actor.trainable_variables):,} trainable parameters")
     print(f"🧠 Replay buffer capacity: {replay_buffer.capacity:,}")
     print(f"🎯 HER strategy: {her.strategy} with k={her.k}")
     
-    # Train with curriculum
+    # Train with curriculum (giữ nguyên logic gốc để trả về kết quả đúng định dạng)
     results = curriculum_trainer.train(
         total_episodes=total_episodes,
         render=render,
         save_checkpoints=True
     )
+    # Tích hợp dynamics model: định kỳ huấn luyện dynamics model và rollout sinh dữ liệu ảo
+    # (Chèn logic này vào trong CurriculumTrainer.train nếu muốn tối ưu sâu hơn)
+    # Ví dụ: sau mỗi stage hoặc mỗi N episode, lấy dữ liệu từ replay_buffer để train dynamics model
+    # và rollout dynamics model để sinh dữ liệu ảo cho agent học thêm
     
     # Save final model
     os.makedirs('checkpoints', exist_ok=True)
@@ -237,7 +246,7 @@ def plot_curriculum_results(results: Dict, stage_history: list):
     
     # Save plot
     os.makedirs('results', exist_ok=True)
-    plt.savefig('results/curriculum_training_results.png', dpi=300, bbox_inches='tight')
+    plt.savefig('results/curriculum_training_results.png', dpi=150, bbox_inches='tight')
     plt.show()
     
     print("📊 Curriculum training plots saved to results/curriculum_training_results.png")
@@ -250,7 +259,7 @@ def main():
     print("=" * 70)
     
     # Training configuration
-    TOTAL_EPISODES = 300
+    TOTAL_EPISODES = 2000  # Total episodes across all curriculum stages
     RENDER_TRAINING = False  # Set to True to see robot during training
     
     # Run curriculum training

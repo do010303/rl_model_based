@@ -8,6 +8,24 @@ import random
 from collections import deque
 
 class ReplayBuffer:
+    def save(self, filename: str):
+        """Save the replay buffer to a file using pickle."""
+        import pickle
+        with open(filename, 'wb') as f:
+            pickle.dump({
+                'capacity': self.capacity,
+                'buffer': list(self.buffer),
+                'position': self.position
+            }, f)
+
+    def load(self, filename: str):
+        """Load the replay buffer from a file using pickle."""
+        import pickle
+        with open(filename, 'rb') as f:
+            data = pickle.load(f)
+            self.capacity = data['capacity']
+            self.buffer = deque(data['buffer'], maxlen=self.capacity)
+            self.position = data['position']
     """
     Experience replay buffer for storing and sampling transitions.
     

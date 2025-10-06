@@ -25,16 +25,16 @@ class DDPGAgent(BaseAgent):
         super().__init__(state_dim, action_dim, config)
         
         # Hyperparameters
-        self.lr_actor = self.config.get('lr_actor', 0.001)
-        self.lr_critic = self.config.get('lr_critic', 0.002)
+        self.lr_actor = self.config.get('lr_actor', 0.0005)
+        self.lr_critic = self.config.get('lr_critic', 0.001)
         self.gamma = self.config.get('gamma', 0.99)
         self.tau = self.config.get('tau', 0.005)
-        self.noise_std = self.config.get('noise_std', 0.2)
-        self.noise_decay = self.config.get('noise_decay', 0.995)
+        self.noise_std = self.config.get('noise_std', 0.4)
+        self.noise_decay = self.config.get('noise_decay', 0.9995)
         
         # Network architecture
-        self.hidden_dims = self.config.get('hidden_dims', [256, 128])
-        
+        self.hidden_dims = self.config.get('hidden_dims', [512, 256, 128])
+
         # Build networks
         self._build_networks()
         
