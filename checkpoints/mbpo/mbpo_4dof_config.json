@@ -1,0 +1,17 @@
+{
+  "state_dim": 14,
+  "action_dim": 4,
+  "config": {
+    "lr_actor": 0.001,
+    "lr_critic": 0.002,
+    "gamma": 0.99,
+    "tau": 0.005,
+    "noise_std": 0.2,
+    "noise_decay": 0.995,
+    "hidden_dims": [
+      256,
+      128
+    ]
+  },
+  "training_step": 2000
+}

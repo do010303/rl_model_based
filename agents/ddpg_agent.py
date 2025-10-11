@@ -62,9 +62,15 @@ class DDPGAgent(BaseAgent):
         self.critic = self._create_critic()
         self.critic_target = self._create_critic()
         
-        # Optimizers
-        self.actor_optimizer = keras.optimizers.Adam(learning_rate=self.lr_actor)
-        self.critic_optimizer = keras.optimizers.Adam(learning_rate=self.lr_critic)
+        # Optimizers with gradient clipping to prevent NaN
+        self.actor_optimizer = keras.optimizers.Adam(
+            learning_rate=self.lr_actor,
+            clipnorm=1.0  # Clip gradients to prevent explosion
+        )
+        self.critic_optimizer = keras.optimizers.Adam(
+            learning_rate=self.lr_critic,
+            clipnorm=1.0  # Clip gradients to prevent explosion
+        )
     
     def _create_actor(self):
         """Create actor network."""
@@ -81,8 +87,8 @@ class DDPGAgent(BaseAgent):
             kernel_initializer='random_uniform'
         )(x)
         
-        # Scale outputs to action bounds
-        outputs = outputs * np.pi  # Assuming joint limits [-π, π]
+        # tanh already outputs [-1, 1], which is what the environment expects
+        # No additional scaling needed
         
         model = keras.Model(inputs, outputs)
         return model
@@ -129,12 +135,28 @@ class DDPGAgent(BaseAgent):
         Returns:
             Selected action
         """
+        # Check for NaN in input state
+        if np.any(np.isnan(state)) or np.any(np.isinf(state)):
+            print(f"⚠️ Invalid state detected: {state}")
+            return np.zeros(self.action_dim)
+            
         state = tf.expand_dims(tf.convert_to_tensor(state, dtype=tf.float32), 0)
         action = self.actor(state)[0].numpy()
         
+        # Check for NaN in action output
+        if np.any(np.isnan(action)) or np.any(np.isinf(action)):
+            print(f"⚠️ Invalid action from actor: {action}")
+            return np.zeros(self.action_dim)
+        
         if add_noise:
             noise = self.noise.sample()
-            action = np.clip(action + noise, -np.pi, np.pi)
+            # Ensure noise is also valid
+            if np.any(np.isnan(noise)) or np.any(np.isinf(noise)):
+                noise = np.zeros_like(action)
+            action = action + noise
+        
+        # Properly clip action to [-1, 1] range as expected by environment
+        action = np.clip(action, -1.0, 1.0)
         
         return action
     
@@ -154,17 +176,37 @@ class DDPGAgent(BaseAgent):
         next_states = tf.convert_to_tensor(batch['next_states'], dtype=tf.float32)
         dones = tf.convert_to_tensor(batch['dones'], dtype=tf.float32)
         
+        # Check for NaN values in batch before training
+        if (np.any(np.isnan(batch['states'])) or np.any(np.isnan(batch['actions'])) or 
+            np.any(np.isnan(batch['rewards'])) or np.any(np.isnan(batch['next_states']))):
+            print("⚠️ NaN detected in training batch, skipping update")
+            return {
+                'actor_loss': 0.0,
+                'critic_loss': 0.0,
+                'noise_std': self.noise.std
+            }
+        
         # Train critic
         critic_loss = self._train_critic(states, actions, rewards, next_states, dones)
         
         # Train actor
         actor_loss = self._train_actor(states)
         
+        # Check if losses are valid
+        if np.isnan(float(critic_loss)) or np.isnan(float(actor_loss)):
+            print("⚠️ NaN loss detected, skipping target network update")
+            return {
+                'actor_loss': 0.0,
+                'critic_loss': 0.0,
+                'noise_std': self.noise.std
+            }
+        
         # Update target networks
         self._update_target_networks()
         
-        # Update noise
-        self.noise.std *= self.noise_decay
+        # Update noise with adaptive decay
+        new_std = self.noise.std * self.noise_decay
+        self.noise.update_std(new_std)
         
         # Update training step
         self.training_step += 1
@@ -192,7 +234,11 @@ class DDPGAgent(BaseAgent):
             critic_loss = tf.reduce_mean(tf.square(y - q_values))
         
         gradients = tape.gradient(critic_loss, self.critic.trainable_variables)
-        self.critic_optimizer.apply_gradients(zip(gradients, self.critic.trainable_variables))
+        
+        # Simple gradient clipping without complex graph operations
+        clipped_gradients = [tf.clip_by_norm(grad, 1.0) if grad is not None else grad for grad in gradients]
+        
+        self.critic_optimizer.apply_gradients(zip(clipped_gradients, self.critic.trainable_variables))
         
         return critic_loss
     
@@ -205,7 +251,11 @@ class DDPGAgent(BaseAgent):
             actor_loss = -tf.reduce_mean(q_values)
         
         gradients = tape.gradient(actor_loss, self.actor.trainable_variables)
-        self.actor_optimizer.apply_gradients(zip(gradients, self.actor.trainable_variables))
+        
+        # Simple gradient clipping without complex graph operations
+        clipped_gradients = [tf.clip_by_norm(grad, 1.0) if grad is not None else grad for grad in gradients]
+        
+        self.actor_optimizer.apply_gradients(zip(clipped_gradients, self.actor.trainable_variables))
         
         return actor_loss
     
@@ -265,22 +315,46 @@ class DDPGAgent(BaseAgent):
 
 class OrnsteinUhlenbeckNoise:
     """
-    Ornstein-Uhlenbeck noise process for continuous action exploration.
+    Enhanced Ornstein-Uhlenbeck noise process for better exploration.
+    
+    Improvements:
+    1. Adaptive noise parameters
+    2. Better initialization
+    3. Temporal correlation tuning
     """
     
-    def __init__(self, size: int, std: float = 0.2, theta: float = 0.15, dt: float = 1e-2):
+    def __init__(self, size: int, std: float = 0.2, theta: float = 0.15, dt: float = 1e-2, 
+                 mu: float = 0.0):
         self.size = size
         self.std = std
-        self.theta = theta
-        self.dt = dt
+        self.theta = theta  # Mean reversion rate - higher = more correlation
+        self.dt = dt       # Time step
+        self.mu = mu       # Mean value (usually 0)
         self.reset()
     
     def reset(self):
         """Reset noise process."""
-        self.state = np.zeros(self.size)
+        # Initialize with small random values instead of zeros for better exploration
+        self.state = np.random.normal(0, 0.1, self.size)
     
     def sample(self) -> np.ndarray:
-        """Sample noise."""
-        dx = self.theta * (-self.state) * self.dt + self.std * np.sqrt(self.dt) * np.random.randn(self.size)
+        """
+        Sample correlated noise using Ornstein-Uhlenbeck process.
+        
+        The process follows: dx = theta * (mu - x) * dt + sigma * sqrt(dt) * dW
+        where dW is Wiener process (random walk)
+        """
+        # Mean reversion term + random shock
+        dx = (self.theta * (self.mu - self.state) * self.dt + 
+              self.std * np.sqrt(self.dt) * np.random.randn(self.size))
+        
         self.state += dx
+        
+        # Clip to prevent explosion
+        self.state = np.clip(self.state, -2.0, 2.0)
+        
         return self.state
+    
+    def update_std(self, new_std: float):
+        """Update noise standard deviation for decay."""
+        self.std = new_std

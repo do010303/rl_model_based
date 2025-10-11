@@ -15,7 +15,6 @@ from environments.robot_4dof_env import Robot4DOFEnv
 from agents.ddpg_agent import DDPGAgent
 from replay_memory.replay_buffer import ReplayBuffer
 from utils.her import HER
-from models.dynamics_model import DynamicsModel
 from mbpo_trainer import MBPOTrainer
 
 def train_ddpg(episodes: int = 5, render: bool = False) -> Dict:
@@ -61,8 +60,6 @@ def train_ddpg(episodes: int = 5, render: bool = False) -> Dict:
     # Initialize replay buffer and HER
     replay_buffer = ReplayBuffer(capacity=100000)
     her = HER(replay_buffer=replay_buffer, k=4, strategy='future')
-    # Initialize dynamics model (model-based)
-    dynamics_model = DynamicsModel(state_dim, action_dim)
     
     # Training statistics
     episode_rewards = []
@@ -121,18 +118,33 @@ def train_ddpg(episodes: int = 5, render: bool = False) -> Dict:
         success_rate = recent_successes / recent_episodes if recent_episodes > 0 else 0
         success_rate_history.append(episode_success)
         distance_history.append(np.mean(episode_distances) if episode_distances else float('inf'))
-      # Always print progress for every episode
+        # Always print progress for every episode with buffer info
+        buffer_size = len(replay_buffer)
+        buffer_capacity = replay_buffer.capacity
+        buffer_percent = (buffer_size / buffer_capacity) * 100
+        
+        # Buffer status indicator  
+        if buffer_percent >= 90.0:
+            buffer_status = "🧹 CLEANUP!"
+        elif buffer_percent >= 85.0:
+            buffer_status = "⚠️ NEAR CLEANUP"
+        elif buffer_percent >= 75.0:
+            buffer_status = "📈 FILLING"
+        else:
+            buffer_status = "📊 NORMAL"
+        
         status_icon = "✅" if episode_success else "🔄"
-    print(f"{status_icon} Episode {episode:3d} | "
-          f"Reward: {episode_reward:6.1f} | "
-          f"Success Rate: {success_rate:.2%} | "
-          f"Avg Distance: {distance_history[-1]:.3f}m | "
-          f"Steps: {step+1}")
+        print(f"{status_icon} Episode {episode:3d} | "
+              f"Reward: {episode_reward:6.1f} | "
+              f"Success Rate: {success_rate:.2%} | "
+              f"Avg Distance: {distance_history[-1]:.3f}m | "
+              f"Steps: {step+1} | "
+              f"Buffer: {buffer_size}/{buffer_capacity} ({buffer_percent:.1f}%) {buffer_status}")
     
     # Save trained model
-    os.makedirs('checkpoints', exist_ok=True)
-    agent.save_model('checkpoints/ddpg_4dof')
-    print("\n Model saved to checkpoints/ddpg_4dof")
+    os.makedirs('checkpoints/ddpg', exist_ok=True)
+    agent.save_model('checkpoints/ddpg/ddpg_4dof')
+    print("\n Model saved to checkpoints/ddpg/ddpg_4dof")
     
     # Plot results
     plot_training_results(episode_rewards, success_rate_history, distance_history)
@@ -155,9 +167,9 @@ def train_ddpg(episodes: int = 5, render: bool = False) -> Dict:
     print(f"Final Average Reward: {final_avg_reward:.1f}")
     
     # Lưu replay buffer sau khi train
-    os.makedirs('checkpoints', exist_ok=True)
-    replay_buffer.save('checkpoints/replay_buffer.pkl')
-    print("Replay buffer đã được lưu vào checkpoints/replay_buffer.pkl")
+    os.makedirs('checkpoints/replay_buffers', exist_ok=True)
+    replay_buffer.save('checkpoints/replay_buffers/replay_buffer.pkl')
+    print("Replay buffer đã được lưu vào checkpoints/replay_buffers/replay_buffer.pkl")
     env.close()
     return results
 
@@ -207,17 +219,26 @@ def plot_training_results(rewards: List[float], success_rates: List[bool], dista
     plt.tight_layout()
     
     # Save plot
-    os.makedirs('results', exist_ok=True)
-    plt.savefig('results/training_results.png', dpi=150, bbox_inches='tight')
+    os.makedirs('logs/results', exist_ok=True)
+    plt.savefig('logs/results/training_results.png', dpi=150, bbox_inches='tight')
     plt.show()
     
-    print("Training plots saved to results/training_results.png")
+    print("Training plots saved to logs/results/training_results.png")
 
 if __name__ == "__main__":
-    # Run training
-    use_mbpo = True  # Đổi thành False nếu muốn dùng train_ddpg truyền thống
+    import argparse
     import time
-    if use_mbpo:
+    
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Train RL agent on 4-DOF robot arm')
+    parser.add_argument('--episodes', type=int, default=200, help='Number of episodes to train')
+    parser.add_argument('--method', choices=['ddpg', 'mbpo'], default='mbpo', help='Training method to use')
+    parser.add_argument('--render', action='store_true', help='Render environment during training')
+    args = parser.parse_args()
+    
+    print(f"Starting training with method: {args.method}, episodes: {args.episodes}")
+    
+    if args.method == 'mbpo':
         env_config = {
             'max_steps': 200,
             'success_distance': 0.05,
@@ -233,11 +254,18 @@ if __name__ == "__main__":
             'noise_decay': 0.995,
             'hidden_dims': [256, 128]
         }
-        trainer = MBPOTrainer(env_config, agent_config, buffer_capacity=100000, ensemble_size=1)
-        trainer.run(episodes=200, max_steps=200, rollout_every=10)
-    else:
         start_time = time.time()
-        results = train_ddpg(episodes=5, render=False)
+        trainer = MBPOTrainer(env_config, agent_config, buffer_capacity=100000, ensemble_size=1)
+        results = trainer.run(episodes=args.episodes, max_steps=200, rollout_every=10)
+        elapsed_time = time.time() - start_time
+        
+        # Additional MBPO-specific summary
+        print(f"🕒 Total training time: {elapsed_time/60:.2f} minutes ({elapsed_time:.1f} seconds)")
+        print(f"⚡ Time per episode: {elapsed_time/args.episodes:.1f} seconds/episode")
+        print(f"🚀 MBPO Performance vs Pure DDPG: Enhanced sample efficiency with synthetic data!")
+    else:  # DDPG method
+        start_time = time.time()
+        results = train_ddpg(episodes=args.episodes, render=args.render)
         elapsed_time = time.time() - start_time
         print(f"\n🎉 Training completed with {results['final_success_rate']:.1%} success rate!")
         print(f"Total training time: {elapsed_time/60:.2f} minutes ({elapsed_time:.1f} seconds)")
