@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <!-- Gazebo Configuration for 4DOF Robot RL Training -->
+  <xacro:macro name="robot_4dof_gazebo">
+    <!-- Gazebo ROS Control Plugin -->
+    <gazebo>
+      <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
+        <robotNamespace>/</robotNamespace>
+        <robotSimType>gazebo_ros_control/DefaultRobotHWSim</robotSimType>
+        <legacyModeNS>true</legacyModeNS>
+      </plugin>
+    </gazebo>
+
+    <!-- Link Colors and Properties - Original Grey Theme -->
+    <gazebo reference="base_link">
+  <material>Gazebo/Blue</material>
+      <mu1>0.2</mu1>
+      <mu2>0.2</mu2>
+      <selfCollide>false</selfCollide>
+    </gazebo>
+
+  <gazebo reference="link_1_1_1">
+  <material>Gazebo/Blue</material>
+      <mu1>0.2</mu1>
+      <mu2>0.2</mu2>
+      <selfCollide>false</selfCollide>
+    </gazebo>
+
+  <gazebo reference="link_2_1_1">
+  <material>Gazebo/Blue</material>
+      <mu1>0.2</mu1>
+      <mu2>0.2</mu2>
+      <selfCollide>false</selfCollide>
+    </gazebo>
+
+  <gazebo reference="link_3_1_1">
+  <material>Gazebo/Blue</material>
+      <mu1>0.2</mu1>
+      <mu2>0.2</mu2>
+      <selfCollide>false</selfCollide>
+    </gazebo>
+
+  <gazebo reference="link_4_1_1">
+  <material>Gazebo/Blue</material>
+      <mu1>0.2</mu1>
+      <mu2>0.2</mu2>
+      <selfCollide>false</selfCollide>
+    </gazebo>
+
+    <gazebo reference="endefff_1">
+    <material>Gazebo/Blue</material>
+      <mu1>0.2</mu1>
+      <mu2>0.2</mu2>
+      <selfCollide>false</selfCollide>
+    </gazebo>
+*** End Patch
+  </xacro:macro>
+</robot>

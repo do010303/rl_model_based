@@ -1,0 +1,62 @@
+<!-- 
+4DOF Robot Gazebo Launch File for RL Training
+Adapted from ROS2 robotic_arm_environment to ROS Noetic
+Based on my_doosan_pkg launch structure
+
+This launch file:
+1. Starts Gazebo with RL training world
+2. Loads and spawns 4DOF robot
+3. Starts ROS controllers
+4. Spawns target sphere for RL training
+5. Sets up complete visual RL environment
+-->
+
+<launch>
+  
+  <!-- Launch Arguments -->
+  <arg name="paused" default="false"/>
+  <arg name="use_sim_time" default="true"/>
+  <arg name="gui" default="true"/>
+  <arg name="headless" default="false"/>
+  <arg name="debug" default="false"/>
+  <arg name="verbose" default="false"/>
+    <arg name="x" default="0"/>
+    <arg name="y" default="0"/>
+    <arg name="z" default="0.0"/>
+    <arg name="world_name" default="$(find new_robot_arm_urdf)/worlds/rl_training_world.world"/>
+
+  <!-- Load robot description parameter - Using original working URDF -->
+
+      <!-- Load robot description parameter - Using original working URDF -->
+  <param name="robot_description" command="$(find xacro)/xacro $(find new_robot_arm_urdf)/urdf/robot_4dof_rl.urdf.xacro"/>
+
+  <!-- Load controller configuration for main trajectory controller (reference style) -->
+  <rosparam file="$(find new_robot_arm_urdf)/config/control.yaml" command="load" />
+
+  <!-- Start Gazebo with RL training world -->
+  <!-- Start Gazebo with RL training world (with surface, etc.) -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="use_sim_time" value="$(arg use_sim_time)"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="world_name" value="$(arg world_name)"/>
+  </include>
+  <!-- Spawn 4DOF robot in Gazebo -->
+  <!-- Spawn 4DOF robot in Gazebo -->
+    <!-- Spawn 4DOF robot in Gazebo (like test launch) -->
+    <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" output="screen"
+          args="-param robot_description -urdf -model robot_4dof_rl -x $(arg x) -y $(arg y) -z $(arg z)"/>
+  <!-- Start main trajectory controller (reference style) -->
+  <node name="controller_spawner" pkg="controller_manager" type="spawner" respawn="false"
+    output="screen" args="joint_state_controller doosan_arm_controller" />
+
+  <!-- Robot State Publisher -->
+    <!-- Spawn target sphere for RL training on drawing surface -->
+    <node name="spawn_sphere" pkg="gazebo_ros" type="spawn_model" 
+      args="-file $(find new_robot_arm_urdf)/models/sdf/target_sphere/model.sdf 
+                  -sdf -model my_sphere -x 0.20 -y 0.0 -z 0.12" 
+      output="screen" respawn="false"/>
+    <!-- No controllers, just world, robot, and target sphere/surface -->
+
+<!-- Removed duplicate and invalid <launch> and <arg> tags at the end -->
+</launch>

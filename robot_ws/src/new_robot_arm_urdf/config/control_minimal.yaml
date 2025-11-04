@@ -1,0 +1,68 @@
+# Alternative: Effort Controllers (potentially more stable)
+# These apply torque/force instead of position commands
+
+
+arm_controller_effort:
+	type: effort_controllers/JointTrajectoryController
+	joints:
+		- Joint1
+		- Joint2
+		- Joint3
+		- Joint4
+	constraints:
+		goal_time: 1.0  # Very slow and gentle
+		stopped_velocity_tolerance: 0.1
+		Joint1:
+			trajectory: 0.5
+			goal: 0.2
+		Joint2:
+			trajectory: 0.5
+			goal: 0.2
+		Joint3:
+			trajectory: 0.5
+			goal: 0.2
+		Joint4:
+			trajectory: 0.5
+			goal: 0.2
+	gains:
+		Joint1: {p: 100.0, i: 5.0, d: 10.0}
+		Joint2: {p: 80.0, i: 4.0, d: 8.0}
+		Joint3: {p: 60.0, i: 3.0, d: 6.0}
+		Joint4: {p: 40.0, i: 2.0, d: 4.0}
+	state_publish_rate: 50.0
+
+# Current position controller (with extremely low gains)
+
+arm_controller:
+	type: position_controllers/JointTrajectoryController
+	joints:
+		- Joint1
+		- Joint2
+		- Joint3
+		- Joint4
+	constraints:
+		goal_time: 1.0  # Very slow movements
+		stopped_velocity_tolerance: 0.1
+		Joint1:
+			trajectory: 0.5
+			goal: 0.2
+		Joint2:
+			trajectory: 0.5
+			goal: 0.2
+		Joint3:
+			trajectory: 0.5
+			goal: 0.2
+		Joint4:
+			trajectory: 0.5
+			goal: 0.2
+	gains:
+		Joint1: {p: 2.0, i: 0.0, d: 0.05}   # Minimal gains
+		Joint2: {p: 1.5, i: 0.0, d: 0.04}
+		Joint3: {p: 1.0, i: 0.0, d: 0.03}
+		Joint4: {p: 0.5, i: 0.0, d: 0.02}
+	state_publish_rate: 50.0
+
+# Joint State Controller
+joint_state_controller:
+	type: joint_state_controller/JointStateController
+	publish_rate: 100

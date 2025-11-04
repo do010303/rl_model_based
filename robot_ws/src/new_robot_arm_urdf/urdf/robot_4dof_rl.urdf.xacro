@@ -1,0 +1,195 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="robot_4dof_rl">
+
+	<!-- Fixed joint to anchor base_link to world -->
+	<link name="world"/>
+	<joint name="world_to_base" type="fixed">
+		<parent link="world"/>
+		<child link="base_link"/>
+		<origin xyz="0 0 0" rpy="0 0 0"/>
+	</joint>
+	<xacro:include filename="$(find new_robot_arm_urdf)/urdf/materials.xacro"/>
+	<xacro:include filename="$(find new_robot_arm_urdf)/urdf/robot_4dof_rl.gazebo"/>
+	<xacro:include filename="$(find new_robot_arm_urdf)/urdf/robot_4dof_rl.transmission"/>
+
+	<!-- Anchor base_link in Gazebo -->
+	<gazebo reference="base_link">
+		<static>true</static>
+	</gazebo>
+
+<link name="base_link">
+	<inertial>
+		<origin xyz="-0.04149471418155845 -0.0025971159520870152 0.013779631134822855" rpy="0 0 0"/>
+		<mass value="0.5842942923229515"/>
+		<inertia ixx="0.00031" iyy="0.001251" izz="0.001356" ixy="-7.7e-05" iyz="6e-06" ixz="2.3e-05"/>
+	</inertial>
+	<visual>
+		<origin xyz="0 0 0" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/base_link__1__1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+			   <material name="blue_robot"/>
+	</visual>
+	<collision>
+		<origin xyz="0 0 0" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/base_link__1__1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+	</collision>
+</link>
+
+<link name="link_1_1_1">
+	<inertial>
+		<origin xyz="0.0013921910526341385 -0.009015999327819468 0.0235284962411932" rpy="0 0 0"/>
+		<mass value="0.2524132842018846"/>
+		<inertia ixx="0.000128" iyy="0.000137" izz="7.6e-05" ixy="2e-06" iyz="1.5e-05" ixz="8e-06"/>
+	</inertial>
+	<visual>
+		<origin xyz="-0.000476 -0.0 -0.033399" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/link_1_1_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+			   <material name="blue_robot"/>
+	</visual>
+	<collision>
+		<origin xyz="-0.000476 -0.0 -0.033399" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/link_1_1_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+	</collision>
+</link>
+
+<link name="link_2_1_1">
+	<inertial>
+		<origin xyz="0.00014024094001882127 0.007326916010056965 0.030962792328760272" rpy="0 0 0"/>
+		<mass value="0.13407278823863725"/>
+		<inertia ixx="0.000109" iyy="0.000112" izz="1e-05" ixy="-0.0" iyz="1e-06" ixz="-4e-06"/>
+	</inertial>
+	<visual>
+		<origin xyz="0.009476 0.001031 -0.085858" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/link_2_1_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+			   <material name="blue_robot"/>
+	</visual>
+	<collision>
+		<origin xyz="0.009476 0.001031 -0.085858" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/link_2_1_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+	</collision>
+</link>
+
+<link name="link_3_1_1">
+	<inertial>
+		<origin xyz="2.7826710637217367e-06 -0.006259371756109719 0.026211019639232058" rpy="0 0 0"/>
+		<mass value="0.10702282683217142"/>
+		<inertia ixx="4.7e-05" iyy="5.1e-05" izz="8e-06" ixy="0.0" iyz="0.0" ixz="0.0"/>
+	</inertial>
+	<visual>
+		<origin xyz="0.006834 0.001231 -0.148989" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/link_3_1_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+			   <material name="blue_robot"/>
+	</visual>
+	<collision>
+		<origin xyz="0.006834 0.001231 -0.148989" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/link_3_1_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+	</collision>
+</link>
+
+<link name="link_4_1_1">
+	<inertial>
+		<origin xyz="0.0005485300954317131 0.017661175140943945 0.019252856661590934" rpy="0 0 0"/>
+		<mass value="0.16465523280917432"/>
+		<inertia ixx="0.000111" iyy="0.000109" izz="1.1e-05" ixy="-0.0" iyz="-3e-06" ixz="-2e-06"/>
+	</inertial>
+	<visual>
+		<origin xyz="0.006957 0.001301 -0.201505" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/link_4_1_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+			   <material name="blue_robot"/>
+	</visual>
+	<collision>
+		<origin xyz="0.006957 0.001301 -0.201505" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/link_4_1_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+	</collision>
+</link>
+
+
+
+<joint name="Joint1" type="revolute">
+	<origin xyz="0.000476 0.0 0.033399" rpy="0 0 0"/>
+	<parent link="base_link"/>
+	<child link="link_1_1_1"/>
+	<axis xyz="0.0 0.0 1.0"/>
+	<limit effort="411" lower="-3.14159" upper="3.14159" velocity="6.2832"/>
+	<dynamics damping="10.0" friction="1.0"/>
+</joint>
+
+<joint name="Joint2" type="revolute">
+	<origin xyz="-0.009952 -0.001031 0.052459" rpy="0 0 0"/>
+	<parent link="link_1_1_1"/>
+	<child link="link_2_1_1"/>
+	<axis xyz="0.0 1.0 0.0"/>
+	<limit effort="411" lower="-1.57079" upper="1.57079" velocity="6.2832"/>
+	<dynamics damping="8.0" friction="0.8"/>
+</joint>
+
+<joint name="Joint3" type="revolute">
+	<origin xyz="0.002642 -0.0002 0.063131" rpy="0 0 0"/>
+	<parent link="link_2_1_1"/>
+	<child link="link_3_1_1"/>
+	<axis xyz="0.0 1.0 0.0"/>
+	<limit effort="194" lower="-1.57079" upper="1.57079" velocity="6.2832"/>
+	<dynamics damping="6.0" friction="0.6"/>
+</joint>
+
+<joint name="Joint4" type="revolute">
+	<origin xyz="-0.000123 -7e-05 0.052516" rpy="0 0 0"/>
+	<parent link="link_3_1_1"/>
+	<child link="link_4_1_1"/>
+	<axis xyz="0.0 1.0 0.0"/>
+	<limit effort="194" lower="-1.57079" upper="1.57079" velocity="6.2832"/>
+	<dynamics damping="20.0" friction="4.0"/>
+</joint>
+
+
+<link name="endefff_1">
+	<inertial>
+		<origin xyz="-2.418967452446838e-07 -3.0465800779019836e-07 5.0444597155419046e-05" rpy="0 0 0"/>
+		<mass value="1.5413438956677347e-07"/>
+		<inertia ixx="0.0" iyy="0.0" izz="0.0" ixy="0.0" iyz="0.0" ixz="-0.0"/>
+	</inertial>
+	<visual>
+		<origin xyz="0.00582 -0.017449 -0.279451" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/endefff_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+			   <material name="blue_robot"/>
+	</visual>
+	<collision>
+		<origin xyz="0.00582 -0.017449 -0.279451" rpy="0 0 0"/>
+		<geometry>
+			<mesh filename="package://new_robot_arm_urdf/meshes/endefff_1.stl" scale="0.001 0.001 0.001"/>
+		</geometry>
+	</collision>
+</link>
+
+<joint name="Rigid5" type="fixed">
+	<origin xyz="0.001137 0.01875 0.077946" rpy="0 0 0"/>
+	<parent link="link_4_1_1"/>
+	<child link="endefff_1"/>
+</joint>
+
+
+<xacro:robot_4dof_transmission/>
+<xacro:robot_4dof_gazebo/>
+</robot>
+

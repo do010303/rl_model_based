@@ -69,7 +69,7 @@ rl_model_based/
 │   └── test_nan_prevention.py        # Testing utilities
 │
 ├── 🤖 src/                           # ROS Integration (Future Gazebo)
-│   └── New_robot_arm_urdf/           # Robot URDF files for Gazebo
+│   └── new_robot_arm_urdf/           # Robot URDF files for Gazebo
 │
 └── 📄 Core Files
     ├── mbpo_trainer.py               # MBPO trainer implementation

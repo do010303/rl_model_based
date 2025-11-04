@@ -1,0 +1,13 @@
+# Copied from backup: config/control_passive.yaml
+# Passive Control - No Active Controllers (No Shaking)
+# Robot will be controlled via direct Gazebo model state manipulation
+
+# Only joint state controller for feedback
+joint_state_controller:
+	type: joint_state_controller/JointStateController
+	publish_rate: 100
+
+# No active position/effort controllers - prevents oscillation
+# RL environment will control robot via:
+# 1. Direct joint position setting via Gazebo services
+# 2. Or physics-based force application

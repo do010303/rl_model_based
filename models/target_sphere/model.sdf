@@ -1,0 +1,43 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <model name="target_sphere">
+    <pose>0 0 0 0 0 0</pose>
+    <static>true</static>
+    
+    <link name="sphere_link">
+      <visual name="sphere_visual">
+        <geometry>
+          <sphere>
+            <radius>0.01</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>1 0 0 1</ambient>
+          <diffuse>1 0 0 1</diffuse>
+          <specular>0.1 0.1 0.1 1</specular>
+          <emissive>0.2 0 0 1</emissive>
+        </material>
+      </visual>
+      
+      <collision name="sphere_collision">
+        <geometry>
+          <sphere>
+            <radius>0.01</radius>
+          </sphere>
+        </geometry>
+      </collision>
+      
+      <inertial>
+        <mass>0.001</mass>
+        <inertia>
+          <ixx>0.0000004</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>0.0000004</iyy>
+          <iyz>0</ixz>
+          <izz>0.0000004</izz>
+        </inertia>
+      </inertial>
+    </link>
+  </model>
+</sdf>

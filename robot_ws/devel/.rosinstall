@@ -1,0 +1,2 @@
+- setup-file:
+    local-name: /home/ducanh/rl_model_based/robot_ws/devel/setup.sh

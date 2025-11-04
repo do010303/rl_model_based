@@ -1,0 +1,107 @@
+<?xml version="1.0"?>
+<!--
+Complete Visual RL Training Launch File for 4DOF Robot Arm in ROS Noetic
+Adapted from ROS2 robotic_arm_environment for complete visual RL training
+
+This launch file starts:
+1. Gazebo simulation with empty world
+2. 4DOF robot arm with physics and controllers
+3. Target sphere for RL training goals
+4. All necessary ROS Noetic nodes for visual RL training
+
+Author: Adapted from David Valencia's ROS2 implementation for 4DOF ROS Noetic
+-->
+<launch>
+
+  <!-- Launch Arguments -->
+  <arg name="world_name" default="empty.world"/>
+  <arg name="paused" default="false"/>
+  <arg name="use_sim_time" default="true"/>
+  <arg name="gui" default="true"/>
+  <arg name="headless" default="false"/>
+  <arg name="debug" default="false"/>
+  <arg name="verbose" default="true"/>
+  
+  <!-- Robot specific arguments -->
+  <arg name="robot_name" default="new_robot_arm_2210"/>
+  <arg name="spawn_x" default="0.0"/>
+  <arg name="spawn_y" default="0.0"/>
+  <arg name="spawn_z" default="0.0"/>
+  
+  <!-- Target sphere arguments -->
+  <arg name="sphere_name" default="my_sphere"/>
+  <arg name="sphere_x" default="0.3"/>
+  <arg name="sphere_y" default="0.0"/>
+  <arg name="sphere_z" default="0.2"/>
+  
+  <!-- Set use_sim_time parameter -->
+  <param name="/use_sim_time" value="$(arg use_sim_time)"/>
+
+  <!-- Load robot description to parameter server -->
+  <param name="robot_description" 
+         command="$(find xacro)/xacro --inorder $(find new_robot_arm_urdf)/urdf/New+robot+arm+2210.xacro" />
+
+  <!-- Start Gazebo with empty world -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(arg world_name)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="use_sim_time" value="$(arg use_sim_time)"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="headless" value="$(arg headless)"/>
+    <arg name="debug" value="$(arg debug)"/>
+    <arg name="verbose" value="$(arg verbose)"/>
+  </include>
+
+  <!-- Spawn 4DOF Robot in Gazebo -->
+  <node name="spawn_robot" pkg="gazebo_ros" type="spawn_model"
+        args="-param robot_description 
+              -urdf 
+              -model $(arg robot_name)
+              -x $(arg spawn_x) 
+              -y $(arg spawn_y) 
+              -z $(arg spawn_z)"
+        output="screen"/>
+
+  <!-- Robot State Publisher -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher">
+    <param name="publish_frequency" type="double" value="50.0"/>
+  </node>
+
+  <!-- Joint State Publisher (not GUI version for training) -->
+  <node name="joint_state_publisher" pkg="joint_state_publisher" type="joint_state_publisher">
+    <param name="use_gui" value="false"/>
+  </node>
+
+  <!-- Load joint controller configurations -->
+  <rosparam file="$(find new_robot_arm_urdf)/config/control.yaml" command="load"/>
+
+  <!-- Start joint controllers -->
+  <node name="controller_spawner" pkg="controller_manager" type="spawner" 
+        respawn="false" output="screen"
+        args="joint_state_controller arm_controller"/>
+
+  <!-- Spawn target sphere in Gazebo (GREEN sphere) -->
+  <node name="spawn_target_sphere" pkg="gazebo_ros" type="spawn_model"
+        args="-file $(find new_robot_arm_urdf)/models/sdf/target_sphere/model.sdf
+              -sdf 
+              -model $(arg sphere_name)
+              -x $(arg sphere_x) 
+              -y $(arg sphere_y) 
+              -z $(arg sphere_z)"
+        output="screen"/>
+
+  <!-- TF Static Transform: world to base_link (if needed) -->
+  <node pkg="tf2_ros" type="static_transform_publisher" name="world_to_base_broadcaster"
+        args="0 0 0 0 0 0 world base_link"/>
+
+  <!-- Optional: RViz for visualization during training -->
+  <!-- Uncomment if you want to see RViz during training -->
+  <!--
+  <node name="rviz" pkg="rviz2" type="rviz2" output="screen"
+        args="-d $(find new_robot_arm_urdf)/rviz/rl_training_config.rviz"/>
+  -->
+
+  <!-- Information logging -->
+  <node name="training_logger" pkg="rospy_tutorials" type="listener.py" output="log"/>
+
+</launch>

@@ -1,0 +1,94 @@
+<!--
+Visual MBPO Training Launch File
+===============================
+
+Launches the complete visual RL training setup:
+1. Gazebo with robot arm and visual workspace
+2. Robot controllers  
+3. Visual training interface
+4. Optional: MBPO training node
+
+Usage:
+  roslaunch new_robot_arm_urdf visual_mbpo_training.launch
+  
+Then in another terminal:
+  python3 train_gazebo_mbpo_visual.py
+
+Author: Adapted for visual RL training
+Date: October 2025
+-->
+
+<launch>
+  <!-- Arguments -->
+  <arg name="gui" default="true" doc="Start Gazebo GUI"/>
+  <arg name="debug" default="false" doc="Enable debug mode"/>
+  <arg name="paused" default="false" doc="Start paused"/>
+  <arg name="use_sim_time" default="true" doc="Use simulation time"/>
+  <arg name="auto_start_training" default="false" doc="Automatically start training"/>
+  
+  <!-- Set simulation parameters -->
+  <param name="use_sim_time" value="$(arg use_sim_time)"/>
+  
+  <!-- Start Gazebo with training world -->
+  <include file="$(find gazebo_ros)/launch/empty_world.launch">
+    <arg name="world_name" value="$(find new_robot_arm_urdf)/worlds/training_world.world"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="use_sim_time" value="$(arg use_sim_time)"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="debug" value="$(arg debug)"/>
+  </include>
+
+  <!-- Robot description -->
+  <param name="robot_description" command="$(find xacro)/xacro $(find new_robot_arm_urdf)/urdf/New+robot+arm+2210.xacro"/>
+
+  <!-- Spawn robot in Gazebo with original model -->
+  <node name="spawn_urdf" pkg="gazebo_ros" type="spawn_model" 
+    args="-urdf -model new_robot_arm_2210 -param robot_description 
+      -x 0 -y 0 -z 0.01
+  -J Joint1 0.0 -J Joint2 -0.4 -J Joint3 0.9 -J Joint4 -0.5" 
+    output="screen"/>
+
+  <!-- Robot state publisher -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher" 
+        output="screen"/>
+
+  <!-- Load joint controller configurations -->
+  <rosparam file="$(find new_robot_arm_urdf)/config/control.yaml" command="load"/>
+  <rosparam file="$(find new_robot_arm_urdf)/config/gazebo_pid.yaml" command="load"/>
+
+  <!-- Spawn controllers with faster startup -->
+  <node name="controller_spawner" pkg="controller_manager" type="spawner" respawn="false"
+  output="screen" args="Joint1_position_controller Joint2_position_controller Joint3_position_controller Joint4_position_controller joint_state_controller --timeout 10"/>
+
+  <!-- Visual training interface -->
+  <node name="training_interface" pkg="new_robot_arm_urdf" type="training_interface.py" 
+        output="screen" respawn="true">
+    <!-- Enhanced parameters for RL training -->
+    <param name="update_rate" value="50"/>  <!-- Higher update rate for RL -->
+    <param name="success_threshold" value="0.05"/>  <!-- 5cm success distance -->
+    <param name="workspace_visualization" value="true"/>
+    <param name="verbose_logging" value="true"/>
+  </node>
+
+  <!-- Optional: Auto-start training -->
+  <group if="$(arg auto_start_training)">
+    <node name="mbpo_trainer" pkg="new_robot_arm_urdf" type="train_gazebo_mbpo_visual.py"
+          output="screen" launch-prefix="python3" respawn="false">
+      <param name="max_episodes" value="200"/>
+      <param name="max_steps" value="50"/>
+      <param name="learning_rate" value="3e-4"/>
+      <param name="batch_size" value="256"/>
+    </node>
+  </group>
+
+  <!-- Debug and monitoring tools -->
+  <group if="$(arg debug)">
+    <!-- TF tree visualization -->
+    <node name="tf_monitor" pkg="tf" type="tf_monitor" output="screen"/>
+    
+    <!-- Joint state monitoring -->
+    <node name="joint_state_monitor" pkg="rostopic" type="rostopic" 
+          args="echo /joint_states" output="screen"/>
+  </group>
+
+</launch>

@@ -1,0 +1,107 @@
+
+# 4DOF Robot Controller Configuration for Visual RL Training
+# Adapted from ROS2 6DOF reference to ROS Noetic 4DOF
+# Based on my_doosan_pkg controller configuration
+
+# Joint State Controller - publishes joint states
+joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 100
+
+# Joint Trajectory Controller for RL actions
+# This is the main controller used by the RL environment for robot control
+joint_trajectory_controller:
+  type: position_controllers/JointTrajectoryController
+  joints:
+    - Joint1
+    - Joint2
+    - Joint3
+    - Joint4
+  constraints:
+    goal_time: 0.5                    # Allow 0.5 seconds for goal completion
+    stopped_velocity_tolerance: 0.05   # Velocity tolerance when stopped
+    Joint1:
+      trajectory: 0.2     # Trajectory tolerance
+      goal: 0.1           # Goal position tolerance (relaxed)
+    Joint2:
+      trajectory: 0.2
+      goal: 0.1           # Goal position tolerance (relaxed)
+    Joint3:
+      trajectory: 0.2
+      goal: 0.1           # Goal position tolerance (relaxed)
+    Joint4:
+      trajectory: 0.2
+      goal: 0.1           # Goal position tolerance (relaxed)
+  gains:
+    Joint1:
+      p: 200.0
+      i: 5.0
+      d: 20.0
+      i_clamp: 10.0
+    Joint2:
+      p: 180.0
+      i: 4.0
+      d: 18.0
+      i_clamp: 8.0
+    Joint3:
+      p: 150.0
+      i: 3.0
+      d: 15.0
+      i_clamp: 6.0
+  # Original Joint4 PID gains (commented for reference)
+  # Joint4:
+    #   p: 200.0
+    #   i: 2.0
+    #   d: 20.0
+    #   i_clamp: 4.0
+    Joint4:
+      p: 200.0
+      i: 2.0
+      d: 20.0
+      i_clamp: 4.0
+  state_publish_rate: 50.0      # Publish controller state at 50 Hz
+  action_monitor_rate: 20.0     # Monitor action execution at 20 Hz
+  allow_partial_joints_goal: false    # Require all joints in trajectory
+
+# Alternative: Individual Position Controllers (for debugging)
+# Uncomment if joint trajectory controller has issues
+# joint1_position_controller:
+#   type: effort_controllers/JointPositionController
+#   joint: joint1
+#   pid: {p: 2000.0, i: 50.0, d: 200.0, i_clamp: 100.0}
+# joint2_position_controller:
+#   type: effort_controllers/JointPositionController
+#   joint: joint2
+#   pid: {p: 2000.0, i: 50.0, d: 200.0, i_clamp: 100.0}
+# joint3_position_controller:
+#   type: effort_controllers/JointPositionController
+#   joint: joint3
+#   pid: {p: 1500.0, i: 30.0, d: 150.0, i_clamp: 80.0}
+# joint4_position_controller:
+#   type: effort_controllers/JointPositionController
+#   joint: joint4
+#   pid: {p: 1000.0, i: 20.0, d: 100.0, i_clamp: 50.0}
+
+# Gazebo PID gains (balanced speed and stability)
+gazebo_ros_control:
+  pid_gains:
+    Joint1:
+      p: 200.0
+      i: 2.0
+      d: 20.0
+      i_clamp: 4.0
+    Joint2:
+      p: 180.0
+      i: 4.0
+      d: 18.0
+      i_clamp: 8.0
+    Joint3:
+      p: 150.0
+      i: 3.0
+      d: 15.0
+      i_clamp: 6.0
+    Joint4:
+      p: 200.0
+      i: 2.0
+      d: 20.0
+      i_clamp: 4.0
