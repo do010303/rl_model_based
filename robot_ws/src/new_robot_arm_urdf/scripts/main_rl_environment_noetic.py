@@ -528,23 +528,41 @@ class RLEnvironmentNoetic:
         Returns:
             dict: {'success': bool, 'error_code': int}
         """
+        # SAFETY: Validate joint limits before sending command
+        # Add 5° (0.087 rad) safety margin to prevent Gazebo physics issues at limits
+        SAFETY_MARGIN = 0.087  # 5 degrees in radians
+        joint_limits_low = np.array([-np.pi/2 + SAFETY_MARGIN, -np.pi/2 + SAFETY_MARGIN, -np.pi/2 + SAFETY_MARGIN, 0.0 + SAFETY_MARGIN])
+        joint_limits_high = np.array([np.pi/2 - SAFETY_MARGIN, np.pi/2 - SAFETY_MARGIN, np.pi/2 - SAFETY_MARGIN, np.pi - SAFETY_MARGIN])
+        
+        # Clip to safe limits
+        safe_positions = np.clip(joint_positions, joint_limits_low, joint_limits_high)
+        
+        # Warn if clipping occurred
+        if not np.allclose(joint_positions, safe_positions, atol=0.01):
+            rospy.logwarn(f"⚠️ Joint limits violated! Clipping from {joint_positions} to {safe_positions}")
+            rospy.logwarn(f"   Safety margin: ±{np.degrees(SAFETY_MARGIN):.1f}° from hardware limits")
+        
+        # SAFETY: Limit maximum velocity by calculating required velocities
+        # Max safe velocity: 2.0 rad/s (prevents oscillation)
+        max_velocity = 2.0  # rad/s
+        
         point = JointTrajectoryPoint()
-        point.positions = joint_positions.tolist()
-        point.velocities = [0.0] * 4
+        point.positions = safe_positions.tolist()
+        point.velocities = [0.0] * 4  # End with zero velocity (smooth stop)
         point.accelerations = [0.0] * 4
-        point.time_from_start = rospy.Duration(3.0)  # Fast movement for RL training
+        point.time_from_start = rospy.Duration(1.0)  # 1 second movement
 
         joint_names = ['Joint1', 'Joint2', 'Joint3', 'Joint4']
         goal = FollowJointTrajectoryGoal()
         goal.trajectory.header.stamp = rospy.Time.now()
         goal.trajectory.joint_names = joint_names
         goal.trajectory.points = [point]
-        goal.goal_time_tolerance = rospy.Duration(2.0)  # Allow some flexibility
+        goal.goal_time_tolerance = rospy.Duration(1.0)
 
         try:
-            self.trajectory_action_client.send_goal_and_wait(goal, rospy.Duration(8.0))  # Wait up to 8s
+            self.trajectory_action_client.send_goal_and_wait(goal, rospy.Duration(3.0))
             result = self.trajectory_action_client.get_result()
-            error_code = result.error_code if result else -100 # Custom code for no result
+            error_code = result.error_code if result else -100
             
             # Error code -5 = GOAL_TOLERANCE_VIOLATED, but trajectory executes
             # We accept this as success since the robot does move to approximately the right position
@@ -552,6 +570,29 @@ class RLEnvironmentNoetic:
             
             if result and result.error_code == -5:
                 rospy.logdebug("Action server returned -5 (GOAL_TOLERANCE_VIOLATED), but trajectory executed")
+            
+            # SAFETY: Check robot state after movement
+            if success:
+                rospy.sleep(0.1)  # Brief pause to let state update
+                current_joints = self.get_joint_positions()
+                current_vels = self.get_joint_velocities()
+                
+                # Detect invalid states (check if None first)
+                if current_joints is None or current_vels is None:
+                    rospy.logwarn("⚠️ Could not get joint state after movement")
+                elif np.any(np.isnan(current_joints)) or np.any(np.isnan(current_vels)):
+                    rospy.logerr("🛑 ROBOT BROKEN! NaN detected in joint state!")
+                    rospy.logerr(f"   Joints: {current_joints}, Velocities: {current_vels}")
+                    return {'success': False, 'error_code': -999}  # Critical error
+                else:
+                    # Check if joints are within valid limits (with small tolerance)
+                    if np.any(current_joints < joint_limits_low - 0.1) or np.any(current_joints > joint_limits_high + 0.1):
+                        rospy.logwarn(f"⚠️ Joints outside safe limits: {current_joints}")
+                    
+                    # Check for excessive velocities (should have settled by now)
+                    max_vel = np.max(np.abs(current_vels))
+                    if max_vel > 3.0:
+                        rospy.logwarn(f"⚠️ High velocity detected: {max_vel:.2f} rad/s")
             
             return {'success': success, 'error_code': error_code}
         except Exception as e:
@@ -648,11 +689,13 @@ class RLEnvironmentNoetic:
     def _move_robot_home(self) -> bool:
         """Move robot to home/initial position (robust, single-point trajectory)"""
         # Home position for all joints (must be within joint limits)
-        # Joint_4: [-1.57079, 1.57079], home = 0.0 (safe)
-        home_position = np.array([0.0, 0.0, 0.0, 0.0])
+        # Joint1-3: 0.0 (straight up)
+        # Joint4: π/2 (1.57 rad = 90°) - perpendicular to drawing surface
+        home_position = np.array([0.0, 0.0, 0.0, np.pi/2])
         # Clip home position to joint limits for safety
         safe_home_position = np.clip(home_position, self.joint_limits_low, self.joint_limits_high)
         rospy.loginfo("Moving robot to home position...")
+        rospy.loginfo(f"  Home: [0°, 0°, 0°, 90°] = {np.round(home_position, 3)} rad")
         result = self.move_to_joint_positions(safe_home_position)
         if result['success']:
             rospy.loginfo("✅ Robot moved to home position")

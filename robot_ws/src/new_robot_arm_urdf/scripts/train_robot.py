@@ -4,11 +4,11 @@ DDPG Training for 4DOF Gazebo Robot - Short Episodes
 Integrates the working test_simple_movement.py timing with DDPG agent
 
 Key Features:
-- Episodes: Only 5 actions per episode (~17.5s total)
-- Action timing: 3.5s per action (3s trajectory + 0.5s buffer)
+- Episodes: Only 5 actions per episode (~5.75s total)
+- Action timing: 1.15s per action (1s trajectory + 0.15s buffer)
 - State space: 14D [4 joint angles, 4 velocities, 3 ee_pos, 3 target_pos]
 - Fast persistent /joint_states subscriber (instant reads)
-- Optimized for rapid RL training in Gazebo
+- Optimized for ultra-rapid RL training in Gazebo
 """
 
 import rospy
@@ -16,6 +16,7 @@ import numpy as np
 import sys
 import os
 import time
+import signal
 from sensor_msgs.msg import JointState
 import matplotlib.pyplot as plt
 import pickle
@@ -27,6 +28,20 @@ sys.path.insert(0, '/home/ducanh/rl_model_based')  # For agents module
 
 from agents.ddpg_gazebo import DDPGAgentGazebo
 from main_rl_environment_noetic import RLEnvironmentNoetic
+
+
+# ============================================================================
+# SIGNAL HANDLER FOR CLEAN EXIT
+# ============================================================================
+
+def signal_handler(sig, frame):
+    """Handle Ctrl+C gracefully"""
+    print("\n\n👋 Ctrl+C detected! Exiting training script. Goodbye!")
+    rospy.signal_shutdown("User requested exit")
+    sys.exit(0)
+
+# Register signal handler
+signal.signal(signal.SIGINT, signal_handler)
 
 
 # ============================================================================
@@ -49,10 +64,10 @@ DISTANCE_WEIGHT = 10.0      # Weight for distance reward
 SUCCESS_BONUS = 50.0        # Bonus for reaching goal
 STEP_PENALTY = 0.1          # Small penalty per step
 
-# Action timing (matching test_simple_movement.py)
-TRAJECTORY_TIME = 3.0       # Trajectory execution time
-BUFFER_TIME = 0.5           # Buffer after trajectory
-ACTION_WAIT_TIME = TRAJECTORY_TIME + BUFFER_TIME  # 3.5s total
+# Action timing (ULTRA-FAST: 1s trajectory + 0.15s buffer = 1.15s total)
+TRAJECTORY_TIME = 1.0       # Trajectory execution time (very fast!)
+BUFFER_TIME = 0.15          # Buffer after trajectory
+ACTION_WAIT_TIME = TRAJECTORY_TIME + BUFFER_TIME  # 1.15s total
 
 
 # ============================================================================
@@ -121,7 +136,7 @@ def get_joint_positions_direct(timeout=0.5):
 class GazeboRLWrapper:
     """
     Wrapper for RLEnvironmentNoetic that provides Gym-like interface
-    Optimized for fast training with 3.5s action execution
+    Optimized for ultra-fast training with 1.15s action execution
     """
     
     def __init__(self, env):
@@ -129,9 +144,9 @@ class GazeboRLWrapper:
         self.state_dim = 14  # [4 joints, 4 vels, 3 ee_pos, 3 target_pos]
         self.action_dim = 4  # 4 joint positions
         
-        # Joint limits (from environment)
-        self.joint_limits_low = np.array([-np.pi, -np.pi/2, -np.pi/2, -np.pi/2])
-        self.joint_limits_high = np.array([np.pi, np.pi/2, np.pi/2, np.pi/2])
+        # Joint limits (UPDATED: Joint1 ±90°, Joint2-3 ±90°, Joint4 0-180°)
+        self.joint_limits_low = np.array([-np.pi/2, -np.pi/2, -np.pi/2, 0.0])
+        self.joint_limits_high = np.array([np.pi/2, np.pi/2, np.pi/2, np.pi])
         
         # Track episode stats
         self.episode_reward = 0
@@ -228,6 +243,17 @@ class GazeboRLWrapper:
         
         # Execute action (send trajectory)
         result = self.env.move_to_joint_positions(joint_positions)
+        
+        # SAFETY: Handle critical robot errors (NaN, broken state)
+        if result['error_code'] == -999:
+            rospy.logerr("      🛑 CRITICAL ERROR! Robot is broken. Resetting environment...")
+            # Force episode to end
+            next_state = self.get_state()
+            reward = -100.0  # Large penalty for breaking the robot
+            done = True
+            info = {'error': 'robot_broken', 'error_code': -999}
+            self.episode_reward += reward
+            return next_state, reward, done, info
         
         if not result['success'] and result['error_code'] not in [-5]:
             rospy.logwarn(f"      ⚠️ Action failed with error code: {result['error_code']}")
@@ -500,22 +526,19 @@ def train_ddpg_gazebo():
     print("1. Manual Test Mode - Test joint angles manually")
     print("2. RL Training Mode - Train DDPG agent")
     print("=" * 70)
+    print("💡 TIP: Press Ctrl+C anytime to exit")
+    print("=" * 70)
     
     while True:
-        try:
-            choice = input("Choose mode (1 or 2): ").strip()
-            if choice == '1':
-                manual_test_mode(env)
-                print("\nReturning to menu...")
-                continue
-            elif choice == '2':
-                break
-            else:
-                print("❌ Invalid choice! Please enter 1 or 2.")
-        except (KeyboardInterrupt, EOFError):
-            print("\n\n👋 Exiting training script. Goodbye!")
-            rospy.signal_shutdown("User requested exit")
-            sys.exit(0)
+        choice = input("Choose mode (1 or 2): ").strip()
+        if choice == '1':
+            manual_test_mode(env)
+            print("\nReturning to menu...")
+            continue
+        elif choice == '2':
+            break
+        else:
+            print("❌ Invalid choice! Please enter 1 or 2.")
     
     # ========================================================================
     # RL TRAINING CONFIGURATION

@@ -2,6 +2,6 @@
 Replay Memory Implementation
 """
 
-from .replay_buffer import ReplayBuffer
+from .ReplayBuffer import ReplayBuffer
 
 __all__ = ['ReplayBuffer']
