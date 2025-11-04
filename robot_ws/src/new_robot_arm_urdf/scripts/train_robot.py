@@ -577,6 +577,11 @@ def train_ddpg_gazebo():
     os.makedirs(checkpoint_dir, exist_ok=True)
     rospy.loginfo(f"📁 Checkpoint directory: {checkpoint_dir}")
     
+    # Create training logs directory
+    logs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'training_logs')
+    os.makedirs(logs_dir, exist_ok=True)
+    rospy.loginfo(f"📁 Training logs directory: {logs_dir}")
+    
     # Training tracking
     episode_rewards = []
     episode_distances = []
@@ -711,7 +716,7 @@ def train_ddpg_gazebo():
         }
     }
     
-    results_file = f'training_results_{timestamp}.pkl'
+    results_file = os.path.join(logs_dir, f'training_results_{timestamp}.pkl')
     with open(results_file, 'wb') as f:
         pickle.dump(results, f)
     
@@ -719,12 +724,12 @@ def train_ddpg_gazebo():
     rospy.loginfo("=" * 70)
     
     # Plot results
-    plot_training_results(results, timestamp)
+    plot_training_results(results, timestamp, logs_dir)
     
     return results
 
 
-def plot_training_results(results, timestamp):
+def plot_training_results(results, timestamp, logs_dir):
     """Plot training results"""
     
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
@@ -785,7 +790,7 @@ def plot_training_results(results, timestamp):
     plt.tight_layout()
     
     # Save figure
-    plot_file = f'training_plot_{timestamp}.png'
+    plot_file = os.path.join(logs_dir, f'training_plot_{timestamp}.png')
     plt.savefig(plot_file, dpi=150)
     rospy.loginfo(f"   📊 Training plot saved to: {plot_file}")
     
