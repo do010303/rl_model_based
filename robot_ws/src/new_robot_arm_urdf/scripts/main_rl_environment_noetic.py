@@ -1,7 +1,7 @@
 from fk_ik_utils import fk
 
-# Drawing surface bounds (adjust as needed)
-SURFACE_X = 0.20
+# Drawing surface bounds (updated to 15cm from robot base)
+SURFACE_X = 0.15  # 15cm from robot base
 SURFACE_Y_MIN = -0.10
 SURFACE_Y_MAX = 0.10
 SURFACE_Z = 0.12
@@ -59,98 +59,7 @@ from control_msgs.msg import FollowJointTrajectoryGoal
 import actionlib
 from control_msgs.msg import FollowJointTrajectoryAction
 from trajectory_drawer import TrajectoryDrawer
-
-class RLEnvironmentNoetic:
-    def wait_until_reached(self, target, tol=0.1, timeout=10, vel_thresh=0.01):
-        """Wait until robot joints reach target (within tol) and velocities are low."""
-        import time
-        start = time.time()
-        while time.time() - start < timeout:
-            state = self.get_state()
-            if state is not None:
-                joints = np.array(state)[3:7]
-                vels = np.array(state)[7:11] if len(state) >= 11 else np.zeros(4)
-                pos_ok = np.allclose(joints, target, atol=tol)
-                vel_ok = np.all(np.abs(vels) < vel_thresh)
-                if pos_ok and vel_ok:
-                    time.sleep(0.2)
-                    return True
-            time.sleep(0.1)
-        return False
-    """
-    Visual RL Environment for 4DOF Robot in ROS Noetic
-    
-    Provides Gym-like interface for robot learning with visual feedback
-    """
-    
-    def __init__(self, max_episodes=1000, max_episode_steps=200, goal_tolerance=0.02):
-        """
-        Initialize the RL environment
-        
-        Args:
-            max_episodes: Maximum number of training episodes (configurable)
-            max_episode_steps: Maximum steps per episode
-            goal_tolerance: Distance tolerance for goal achievement (reduced for smaller target)
-        """
-        rospy.loginfo("🤖 Initializing Visual RL Environment for 4DOF Robot...")
-        
-        # Episode configuration (now configurable)
-        self.max_episodes = max_episodes
-        self.max_episode_steps = max_episode_steps
-        self.goal_tolerance = goal_tolerance  # Reduced for smaller target sphere
-        """Move target sphere to random position on the drawing surface"""
-        # Drawing surface is a vertical plane at x=0.2m (20cm from robot base)
-        # Surface dimensions: 50cm height x 30cm width (0.5 x 0.3)
-        # Surface center: x=0.2, y=0, z=0.15
-        
-        # Generate random position on the drawing surface
-        drawing_surface_x = 0.2   # Fixed X position (surface distance from robot - 20cm)
-        surface_y_range = 0.12    # +/- 12cm from center (24cm total width)
-        surface_z_min = 0.05      # 5cm from bottom (accessible by robot)
-        surface_z_max = 0.35      # 35cm from bottom (top of reachable area)
-        
-        sphere_x = drawing_surface_x + random.uniform(-0.01, 0.01)  # Small variance around surface
-        sphere_y = random.uniform(-surface_y_range, surface_y_range)
-        sphere_z = random.uniform(surface_z_min, surface_z_max)
-        
-        # Create service request
-        request = SetModelStateRequest()
-        request.model_state.model_name = 'my_sphere'
-        request.model_state.reference_frame = 'world'
-        
-        # Set position
-        request.model_state.pose = Pose()
-        request.model_state.pose.position = Point(x=sphere_x, y=sphere_y, z=sphere_z)
-        request.model_state.pose.orientation = Quaternion(x=0, y=0, z=0, w=1)
-        
-        try:
-            rospy.loginfo(f"🎯 Moving target to drawing surface: [{sphere_x:.3f}, {sphere_y:.3f}, {sphere_z:.3f}]")
-            response = self.reset_target_client(request)
-            
-            if response.success:
-                rospy.loginfo("✅ Target sphere positioned on drawing surface")
-                return True
-            else:
-                rospy.logerr(f"❌ Target reset failed: {response.status_message}")
-                return False
-                
-        except Exception as e:
-            rospy.logerr(f"Error resetting target position: {e}")
-            return False
-
-    def _show_episode_success(self):
-        """Visual feedback for successful episode completion"""
-        try:
-            # Flash the target sphere green to indicate success
-            rospy.loginfo("🎉 SHOWING SUCCESS FEEDBACK 🎉")
-            rospy.sleep(0.5)  # Brief pause for effect
-            
-        except Exception as e:
-            rospy.logerr(f"Error showing episode success: {e}")
-
-    def generate_random_action(self) -> np.ndarray:
-        """Generate random action within joint limits for exploration"""
-        return np.random.uniform(self.joint_limits_low, self.joint_limits_high)
+from gazebo_visual_trajectory import GazeboVisualTrajectory
 
 # TF for end-effector position tracking
 import tf2_ros
@@ -163,15 +72,26 @@ class RLEnvironmentNoetic:
     Adapted from ROS2 robotic_arm_environment for visual RL training in Gazebo
     """
     
-    def __init__(self, max_episode_steps=200, goal_tolerance=0.02):
+    def __init__(self, max_episode_steps=200, goal_tolerance=0.02, enable_gazebo_trajectory=False):
         """
         Initialize Visual RL Environment for 4DOF Robot
         
         Args:
             max_episode_steps: Maximum steps per episode (default: 200)
             goal_tolerance: Distance threshold for goal achievement (default: 0.02m)
+            enable_gazebo_trajectory: Enable trajectory in Gazebo (default: False)
+                                     WARNING: Gazebo trajectory is SLOW and ROUGH!
+                                     Use RViz for smooth visualization instead.
         """
         rospy.loginfo("🤖 Initializing Visual RL Environment for 4DOF Robot...")
+        
+        # Configuration parameters
+        self.max_episode_steps = max_episode_steps
+        self.goal_tolerance = goal_tolerance
+        self.enable_gazebo_trajectory = enable_gazebo_trajectory
+        self.current_step = 0
+        
+        rospy.loginfo(f"📊 Episode settings: max_steps={max_episode_steps}, goal_tolerance={goal_tolerance}m")
         
         # Robot state variables (4DOF robot)
         self.robot_x = 0.0
@@ -188,23 +108,43 @@ class RLEnvironmentNoetic:
         # State readiness flag
         self.data_ready = False
         
-        # Joint limits for 4DOF robot (from original Fusion URDF)
-        self.joint_limits_low = np.array([-3.14159, -1.57079, -1.57079, -1.57079])
-        self.joint_limits_high = np.array([3.14159, 1.57079, 1.57079, 1.57079])
-        
-        # RL training parameters (configurable)
-        self.goal_tolerance = goal_tolerance
-        self.max_episode_steps = max_episode_steps
-        self.current_step = 0
-        
-        rospy.loginfo(f"📊 Episode settings: max_steps={max_episode_steps}, goal_tolerance={goal_tolerance}m")
+        # Joint limits for 4DOF robot - Match URDF limits with 5° safety margin
+        # URDF limits: Joint1-3: ±90° (±π/2), Joint4: 0-180° (0-π)
+        SAFETY_MARGIN = 0.087  # 5 degrees in radians
+        self.joint_limits_low = np.array([
+            -np.pi/2 + SAFETY_MARGIN,  # Joint1: -85° to +85°
+            -np.pi/2 + SAFETY_MARGIN,  # Joint2: -85° to +85°
+            -np.pi/2 + SAFETY_MARGIN,  # Joint3: -85° to +85°
+             0.0     + SAFETY_MARGIN   # Joint4: 5° to 175°
+        ])
+        self.joint_limits_high = np.array([
+             np.pi/2 - SAFETY_MARGIN,  # Joint1: +85°
+             np.pi/2 - SAFETY_MARGIN,  # Joint2: +85°
+             np.pi/2 - SAFETY_MARGIN,  # Joint3: +85°
+             np.pi   - SAFETY_MARGIN   # Joint4: 175°
+        ])
         
         # TF2 for end-effector position tracking
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         
-        # Trajectory drawer for visualizing end-effector path
-        self.trajectory_drawer = TrajectoryDrawer(color='green', line_width=0.003)
+        # Trajectory drawers for visualizing end-effector path
+        # RViz trajectory (visualization_msgs/Marker - green line, instant)
+        self.trajectory_drawer = TrajectoryDrawer(color='green', line_width=0.01)
+        
+        # Gazebo visual trajectory (spawned cylinders - visible in Gazebo)
+        # Spawns 3D cylinders that are actually visible in Gazebo simulation
+        if self.enable_gazebo_trajectory:
+            rospy.loginfo("🎨 Gazebo visual trajectory ENABLED (spawns cylinders)")
+            self.gazebo_drawer = GazeboVisualTrajectory(
+                color='cyan',  # Cyan cylinders in Gazebo
+                line_width=0.004,  # 4mm diameter cylinders
+                namespace='trajectory'  # Model name prefix
+            )
+        else:
+            rospy.loginfo("🎨 Gazebo trajectory disabled (use RViz for visualization)")
+            self.gazebo_drawer = None
+        
         self._last_ee_pos = None  # For tracking movement
         
         # Initialize ROS interfaces
@@ -344,18 +284,30 @@ class RLEnvironmentNoetic:
                 if 'robot_4dof_rl::link_4_1_1' in link_states.name:
                     idx = link_states.name.index('robot_4dof_rl::link_4_1_1')
                     pos = link_states.pose[idx].position
-                    
-                    # link_4_1_1 position + Rigid5 offset to get actual endefff_1 tip
-                    # The offset needs to be rotated by link_4's orientation
                     ori = link_states.pose[idx].orientation
                     
-                    # For now, use simple offset (assumes link_4 at home orientation)
-                    # TODO: Properly rotate offset by link_4 orientation quaternion
-                    offset = np.array([0.001137, 0.01875, 0.077946])
+                    # link_4_1_1 position + Rigid5 offset to get actual endefff_1 tip
+                    # The offset MUST be rotated by link_4's orientation!
+                    offset_local = np.array([0.001137, 0.01875, 0.077946])
                     
-                    self.robot_x = pos.x + offset[0]
-                    self.robot_y = pos.y + offset[1]
-                    self.robot_z = pos.z + offset[2]
+                    # Convert quaternion to rotation matrix
+                    # quaternion: (x, y, z, w)
+                    qx, qy, qz, qw = ori.x, ori.y, ori.z, ori.w
+                    
+                    # Quaternion to rotation matrix
+                    R = np.array([
+                        [1 - 2*(qy**2 + qz**2), 2*(qx*qy - qz*qw), 2*(qx*qz + qy*qw)],
+                        [2*(qx*qy + qz*qw), 1 - 2*(qx**2 + qz**2), 2*(qy*qz - qx*qw)],
+                        [2*(qx*qz - qy*qw), 2*(qy*qz + qx*qw), 1 - 2*(qx**2 + qy**2)]
+                    ])
+                    
+                    # Rotate the offset from link_4's local frame to world frame
+                    offset_world = R @ offset_local
+                    
+                    # End-effector position = link_4 position + rotated offset
+                    self.robot_x = pos.x + offset_world[0]
+                    self.robot_y = pos.y + offset_world[1]
+                    self.robot_z = pos.z + offset_world[2]
                     
                     # Update trajectory drawing
                     self._update_trajectory_drawing()
@@ -391,14 +343,19 @@ class RLEnvironmentNoetic:
             min_movement = 0.002  # 2mm threshold
             
             if self._last_ee_pos is None:
-                # First point
+                # First point - add to RViz (always) and Gazebo (if enabled)
                 self.trajectory_drawer.add_point_array(current_pos)
+                if self.gazebo_drawer is not None:
+                    self.gazebo_drawer.add_point_array(current_pos)
                 self._last_ee_pos = current_pos
             else:
                 # Check if moved enough
                 distance = np.linalg.norm(current_pos - self._last_ee_pos)
                 if distance >= min_movement:
+                    # Add to RViz (always) and Gazebo (if enabled)
                     self.trajectory_drawer.add_point_array(current_pos)
+                    if self.gazebo_drawer is not None:
+                        self.gazebo_drawer.add_point_array(current_pos)
                     self._last_ee_pos = current_pos
         except Exception as e:
             rospy.logdebug_throttle(5.0, f"Trajectory drawing update failed: {e}")
@@ -542,6 +499,27 @@ class RLEnvironmentNoetic:
             rospy.logwarn(f"⚠️ Joint limits violated! Clipping from {joint_positions} to {safe_positions}")
             rospy.logwarn(f"   Safety margin: ±{np.degrees(SAFETY_MARGIN):.1f}° from hardware limits")
         
+        # SAFETY: Check if target position would cause robot to overreach/collapse
+        # Use FK to predict end-effector position
+        try:
+            predicted_ee_pos = fk(safe_positions)
+            predicted_x, predicted_y, predicted_z = predicted_ee_pos
+            
+            # Check if end-effector would go past surface (overreach)
+            # Surface is at x=0.075m, allow small tolerance
+            if predicted_x > 0.15:  # More than 15cm - definitely overreaching
+                rospy.logwarn(f"⚠️ OVERREACH WARNING: EE would be at x={predicted_x:.3f}m (> 0.15m limit)")
+                rospy.logwarn(f"   This could cause robot collapse! Rejecting action.")
+                return {'success': False, 'error_code': -998}  # Overreach prevention
+            
+            # Check if end-effector is too low (would hit ground)
+            if predicted_z < 0.0:
+                rospy.logwarn(f"⚠️ GROUND COLLISION: EE would be at z={predicted_z:.3f}m (< 0.0m)")
+                return {'success': False, 'error_code': -997}  # Ground collision prevention
+                
+        except Exception as e:
+            rospy.logwarn(f"⚠️ FK check failed: {e}. Proceeding with caution...")
+        
         # SAFETY: Limit maximum velocity by calculating required velocities
         # Max safe velocity: 2.0 rad/s (prevents oscillation)
         max_velocity = 2.0  # rad/s
@@ -646,6 +624,9 @@ class RLEnvironmentNoetic:
         """
         rospy.loginfo("🔄 Resetting RL environment...")
         
+        # Clear trajectory drawing from previous episode
+        self.clear_trajectory()
+        
         # Reset episode step counter
         self.current_step = 0
         
@@ -706,10 +687,10 @@ class RLEnvironmentNoetic:
     
     def _reset_target_position(self) -> bool:
         """Move target sphere to random position on the drawing surface (robust randomization)"""
-        # Drawing surface is a vertical plane at x=0.2m (20cm from robot base)
+        # Drawing surface is a vertical plane at x=0.15m (15cm from robot base)
         # Surface dimensions: 0.3m (width, y) x 0.25m (height, z)
-        # Center: x=0.2, y=0, z=0.12
-        surface_x = 0.2 - 0.008  # 8mm in front of surface
+        # Center: x=0.15, y=0, z=0.12
+        surface_x = 0.15 - 0.008  # 8mm in front of surface (15cm - 8mm = 14.2cm)
         surface_y_min = -0.14    # -14cm from center
         surface_y_max = 0.14     # +14cm from center
         surface_z_min = 0.05     # 5cm above ground
@@ -759,11 +740,17 @@ class RLEnvironmentNoetic:
         return np.linalg.norm(end_effector_pos - target_pos)
     
     def clear_trajectory(self):
-        """Clear the trajectory drawing"""
+        """Clear the trajectory drawing from RViz and Gazebo (if enabled)"""
         if hasattr(self, 'trajectory_drawer'):
             self.trajectory_drawer.clear()
-            self._last_ee_pos = None
-            rospy.loginfo("🧹 Trajectory cleared!")
+        if hasattr(self, 'gazebo_drawer') and self.gazebo_drawer is not None:
+            self.gazebo_drawer.clear()
+        self._last_ee_pos = None
+        
+        if self.gazebo_drawer is not None:
+            rospy.loginfo("🧹 Trajectory cleared (RViz + Gazebo)!")
+        else:
+            rospy.loginfo("🧹 Trajectory cleared (RViz)!")
     
     def get_trajectory_info(self) -> dict:
         """Get information about current trajectory"""

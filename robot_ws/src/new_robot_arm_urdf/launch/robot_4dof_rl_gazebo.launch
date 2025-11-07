@@ -52,9 +52,11 @@ This launch file:
 
   <!-- Robot State Publisher -->
     <!-- Spawn target sphere for RL training on drawing surface -->
+    <!-- Surface is at Z=0.12m, sphere radius ~0.01m, so sphere center at Z=0.14m sits ON surface -->
+    <!-- X=0.15m (15cm) for better reachability -->
     <node name="spawn_sphere" pkg="gazebo_ros" type="spawn_model" 
       args="-file $(find new_robot_arm_urdf)/models/sdf/target_sphere/model.sdf 
-                  -sdf -model my_sphere -x 0.20 -y 0.0 -z 0.12" 
+                  -sdf -model my_sphere -x 0.15 -y 0.0 -z 0.14" 
       output="screen" respawn="false"/>
     <!-- No controllers, just world, robot, and target sphere/surface -->
 

@@ -4,56 +4,28 @@
     <pose>0 0 0 0 0 0</pose>
     
     <link name="sphere_link">
-      <inertial>
-        <mass>0.1</mass>
-        <inertia>
-          <ixx>0.0001</ixx>
-          <ixy>0</ixy>
-          <ixz>0</ixz>
-          <iyy>0.0001</iyy>
-          <iyz>0</iyz>
-          <izz>0.0001</izz>
-        </inertia>
-      </inertial>
-      <gravity>0</gravity>  <!-- Disable gravity so sphere doesn't fall -->
-
-      <collision name="collision">
-        <geometry>
-          <sphere>
-            <radius>0.01</radius>  <!-- 1cm radius for precision drawing -->
-          </sphere>
-        </geometry>
-        <surface>
-          <friction>
-            <ode>
-              <mu>1.0</mu>
-              <mu2>1.0</mu2>
-            </ode>
-          </friction>
-        </surface>
-      </collision>
+      <!-- No inertial - this is a visual-only marker -->
+      <gravity>0</gravity>  <!-- Disable gravity -->
+      
+      <!-- NO COLLISION - Robot can pass through it -->
+      <!-- This allows the robot to reach the target without pushing the sphere -->
 
       <visual name="visual">
         <geometry>
           <sphere>
-            <radius>0.01</radius>  <!-- 1cm radius for precision drawing -->
+            <radius>0.01</radius>  <!-- 1cm radius - small target marker -->
           </sphere>
         </geometry>
         <material>
           <script>
-            <name>Gazebo/Red</name>  <!-- Red target for better visibility against white drawing surface -->
+            <name>Gazebo/Red</name>  <!-- Red target for visibility -->
           </script>
         </material>
       </visual>
     </link>
-
-    <!-- Plugin to allow dynamic repositioning -->
-    <plugin name="sphere_controller" filename="libgazebo_ros_planar_move.so">
-      <commandTopic>cmd_vel</commandTopic>
-      <odometryTopic>odom</odometryTopic>
-      <odometryFrame>odom</odometryFrame>
-      <robotBaseFrame>sphere_link</robotBaseFrame>
-    </plugin>
+    
+    <!-- Make the model static (cannot be pushed) -->
+    <static>true</static>
     
   </model>
 </sdf>

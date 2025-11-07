@@ -1,16 +1,21 @@
 """
 Forward Kinematics for 4DOF Robot Arm
-Adapted from Control_Robot/p_fkdh.py for ROS Noetic
+Extracted DIRECTLY from robot_4dof_rl.urdf.xacro for accuracy
 
-DH Parameters for your 4DOF robot:
-- Base offset: 66mm (0.066m)
-- Link lengths: 80mm, 80mm, 50mm (0.08m, 0.08m, 0.05m)
+URDF Joint Origins (exact values):
+- Joint1 (base to link1): xyz="0.000476 0.0 0.033399"
+- Joint2 (link1 to link2): xyz="-0.009952 -0.001031 0.052459"  
+- Joint3 (link2 to link3): xyz="0.002642 -0.0002 0.063131"
+- Joint4 (link3 to link4): xyz="-0.000123 -7e-05 0.052516"
+- Rigid5 (link4 to endefff): xyz="0.001137 0.01875 0.077946"
+
+These values come from the actual CAD model exported to URDF.
 """
 import numpy as np
 
 def fk(joint_angles):
     """
-    Forward Kinematics using DH parameters
+    Forward Kinematics using EXACT URDF parameters
     
     Args:
         joint_angles: [theta1, theta2, theta3, theta4] in RADIANS
@@ -18,79 +23,61 @@ def fk(joint_angles):
     Returns:
         (x, y, z) end-effector position in METERS
     """
-    # Convert joint angles to degrees for DH calculation
-    j1_deg = np.degrees(joint_angles[0])
-    j2_deg = np.degrees(joint_angles[1])
-    j3_deg = np.degrees(joint_angles[2])
-    j4_deg = np.degrees(joint_angles[3])
+    # URDF-based kinematic chain (EXACT values from robot_4dof_rl.urdf.xacro)
+    # Joint1: base_link -> link_1_1_1
+    j1_origin = np.array([0.000476, 0.0, 0.033399])
     
-    # DH parameters (from p_fkdh.py)
-    # Convert mm to meters
-    base_height = 0.066  # 66mm base offset
-    link1 = 0.080  # 80mm
-    link2 = 0.080  # 80mm  
-    link3 = 0.050  # 50mm
+    # Joint2: link_1_1_1 -> link_2_1_1
+    j2_origin = np.array([-0.009952, -0.001031, 0.052459])
     
-    # DH table: [theta, d, a, alpha]
-    # Joint 1: Revolute around Z
-    theta1 = j1_deg
-    d1 = base_height
-    a1 = 0.0
-    alpha1 = 90.0  # degrees
+    # Joint3: link_2_1_1 -> link_3_1_1
+    j3_origin = np.array([0.002642, -0.0002, 0.063131])
     
-    # Joint 2: Revolute in XY plane
-    theta2 = j2_deg
-    d2 = 0.0
-    a2 = link1
-    alpha2 = 0.0
+    # Joint4: link_3_1_1 -> link_4_1_1
+    j4_origin = np.array([-0.000123, -0.000070, 0.052516])
     
-    # Joint 3: Revolute in XY plane
-    theta3 = j3_deg
-    d3 = 0.0
-    a3 = link2
-    alpha3 = 0.0
+    # Rigid5: link_4_1_1 -> endefff_1 (fixed joint)
+    ee_offset = np.array([0.001137, 0.01875, 0.077946])
     
-    # Joint 4: Revolute in XY plane
-    theta4 = j4_deg
-    d4 = 0.0
-    a4 = link3
-    alpha4 = 0.0
-    
-    # Calculate transformation matrices using DH convention
-    def dh_matrix(theta, d, a, alpha):
-        """DH transformation matrix"""
-        theta_rad = np.radians(theta)
-        alpha_rad = np.radians(alpha)
-        
+    # Rotation matrices for each joint
+    def rot_z(theta):
+        """Rotation around Z-axis"""
+        c, s = np.cos(theta), np.sin(theta)
         return np.array([
-            [np.cos(theta_rad), -np.sin(theta_rad)*np.cos(alpha_rad),  np.sin(theta_rad)*np.sin(alpha_rad), a*np.cos(theta_rad)],
-            [np.sin(theta_rad),  np.cos(theta_rad)*np.cos(alpha_rad), -np.cos(theta_rad)*np.sin(alpha_rad), a*np.sin(theta_rad)],
-            [0,                  np.sin(alpha_rad),                     np.cos(alpha_rad),                    d],
-            [0,                  0,                                      0,                                     1]
+            [c, -s, 0],
+            [s,  c, 0],
+            [0,  0, 1]
         ])
     
-    # Calculate each transformation
-    T01 = dh_matrix(theta1, d1, a1, alpha1)
-    T12 = dh_matrix(theta2, d2, a2, alpha2)
-    T23 = dh_matrix(theta3, d3, a3, alpha3)
-    T34 = dh_matrix(theta4, d4, a4, alpha4)
+    def rot_y(theta):
+        """Rotation around Y-axis"""
+        c, s = np.cos(theta), np.sin(theta)
+        return np.array([
+            [ c, 0, s],
+            [ 0, 1, 0],
+            [-s, 0, c]
+        ])
     
-    # Forward kinematics: T_0_4 = T01 * T12 * T23 * T34
-    T04 = T01 @ T12 @ T23 @ T34
+    # Build transformation chain
+    # Joint1 rotates around Z-axis
+    R1 = rot_z(joint_angles[0])
+    p1 = R1 @ j2_origin  # Transform j2_origin to world frame after J1 rotation
     
-    # Add the fixed offset from link_4 to endefff_1 (from URDF Rigid5 joint)
-    # URDF: <origin xyz="0.001137 0.01875 0.077946" rpy="0 0 0"/>
-    # This extends to the ACTUAL tip of the end-effector (endefff_1 link)
-    endefff_offset = np.array([0.001137, 0.01875, 0.077946, 1.0])  # Homogeneous coordinates
+    # Joint2 rotates around Y-axis  
+    R2 = R1 @ rot_y(joint_angles[1])
+    p2 = p1 + R2 @ j3_origin
     
-    # Transform the offset to world coordinates
-    ee_pos_homogeneous = T04 @ endefff_offset
+    # Joint3 rotates around Y-axis
+    R3 = R2 @ rot_y(joint_angles[2])
+    p3 = p2 + R3 @ j4_origin
     
-    # Extract end-effector position
-    x = ee_pos_homogeneous[0]
-    y = ee_pos_homogeneous[1]
-    z = ee_pos_homogeneous[2]
+    # Joint4 rotates around Y-axis
+    R4 = R3 @ rot_y(joint_angles[3])
+    p4 = p3 + R4 @ ee_offset
     
-    return (x, y, z)
+    # Final end-effector position (add base offset)
+    ee_pos = j1_origin + p4
+    
+    return (ee_pos[0], ee_pos[1], ee_pos[2])
 
 

@@ -112,10 +112,10 @@
     <!-- Drawing Surface for robot to reach targets -->
     <!-- Positioned at reachable distance for drawing tasks -->
     <!-- Drawing Surface for robot to reach targets -->
-    <!-- Positioned at 20cm from base, vertical plane for drawing tasks -->
+    <!-- Positioned at 15cm from base, vertical plane for drawing tasks -->
     <model name='drawing_surface'>
       <static>1</static>
-      <pose frame=''>0.2 0 0.12 0 1.57079 0</pose>  <!-- 20cm from base, vertical plane -->
+      <pose frame=''>0.15 0 0.12 0 1.57079 0</pose>  <!-- 15cm from base, vertical plane -->
       <link name='drawing_surface_link'>
         <visual name='drawing_surface_visual'>
           <geometry>

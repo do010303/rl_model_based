@@ -7,7 +7,14 @@ Key Features:
 - Episodes: Only 5 actions per episode (~5.75s total)
 - Action timing: 1.15s per action (1s trajectory + 0.15s buffer)
 - State space: 14D [4 joint angles, 4 velocities, 3 ee_pos, 3 target_pos]
-- Fast persistent /joint_states subscriber (instant reads)
+-        # Info for debugging
+        info = {
+            'distance': distance,
+            'min_distance': self.min_distance,
+            'success': done
+        }
+        
+        return reward, done, infopersistent /joint_states subscriber (instant reads)
 - Optimized for ultra-rapid RL training in Gazebo
 """
 
@@ -58,11 +65,10 @@ OPT_STEPS_PER_EPISODE = 40  # Gradient updates per episode
 SAVE_INTERVAL = 25          # Save models every N episodes
 EVAL_INTERVAL = 10          # Evaluate (without noise) every N episodes
 
-# Reward settings
-GOAL_THRESHOLD = 0.02       # 2cm threshold for success (meters)
-DISTANCE_WEIGHT = 10.0      # Weight for distance reward
-SUCCESS_BONUS = 50.0        # Bonus for reaching goal
-STEP_PENALTY = 0.1          # Small penalty per step
+# Reward settings (SIMPLIFIED - matching reference robotic_arm_environment)
+GOAL_THRESHOLD = 0.05       # 5cm threshold for success (same as reference project)
+SUCCESS_REWARD = 10.0       # +10 when goal reached (same as reference)
+STEP_REWARD = -1.0          # -1 for each step not at goal (same as reference)
 
 # Action timing (ULTRA-FAST: 1s trajectory + 0.15s buffer = 1.15s total)
 TRAJECTORY_TIME = 1.0       # Trajectory execution time (very fast!)
@@ -244,14 +250,51 @@ class GazeboRLWrapper:
         # Execute action (send trajectory)
         result = self.env.move_to_joint_positions(joint_positions)
         
-        # SAFETY: Handle critical robot errors (NaN, broken state)
+        # SAFETY: Handle critical robot errors
         if result['error_code'] == -999:
-            rospy.logerr("      🛑 CRITICAL ERROR! Robot is broken. Resetting environment...")
-            # Force episode to end
+            rospy.logerr("      🛑 CRITICAL ERROR! Robot is broken (NaN detected). Resetting environment...")
             next_state = self.get_state()
             reward = -100.0  # Large penalty for breaking the robot
             done = True
             info = {'error': 'robot_broken', 'error_code': -999}
+            self.episode_reward += reward
+            return next_state, reward, done, info
+        
+        # SAFETY: Handle overreaching (would cause collapse)
+        if result['error_code'] == -998:
+            rospy.logwarn("      ⚠️ OVERREACH PREVENTED! Robot would collapse. Penalizing and continuing...")
+            next_state = self.get_state()
+            current_ee = next_state[8:11]
+            target_pos = next_state[11:14]
+            distance = np.linalg.norm(current_ee - target_pos)
+            reward = -50.0  # Penalty for trying to overreach
+            done = False  # Don't end episode, just penalize
+            info = {
+                'error': 'overreach_prevented', 
+                'error_code': -998,
+                'distance': distance,
+                'ee_position': current_ee,
+                'target_position': target_pos
+            }
+            self.episode_reward += reward
+            return next_state, reward, done, info
+        
+        # SAFETY: Handle ground collision
+        if result['error_code'] == -997:
+            rospy.logwarn("      ⚠️ GROUND COLLISION PREVENTED! Penalizing and continuing...")
+            next_state = self.get_state()
+            current_ee = next_state[8:11]
+            target_pos = next_state[11:14]
+            distance = np.linalg.norm(current_ee - target_pos)
+            reward = -30.0  # Penalty for trying to hit ground
+            done = False
+            info = {
+                'error': 'ground_collision_prevented', 
+                'error_code': -997,
+                'distance': distance,
+                'ee_position': current_ee,
+                'target_position': target_pos
+            }
             self.episode_reward += reward
             return next_state, reward, done, info
         
@@ -306,13 +349,18 @@ class GazeboRLWrapper:
     def _calculate_reward(self, state):
         """
         Calculate reward based on distance to target
+        SIMPLIFIED APPROACH (matching reference robotic_arm_environment):
+        - +10 if distance <= 5cm (goal reached)
+        - -1 otherwise
+        
+        This simple binary reward works better than complex distance-based rewards!
         
         Args:
             state: 14D state vector
             
         Returns:
             reward: float
-            done: bool (ONLY True if goal reached, NOT on max steps)
+            done: bool (True if goal reached)
             info: dict
         """
         # Extract positions from state
@@ -322,27 +370,23 @@ class GazeboRLWrapper:
         # Calculate distance
         distance = np.linalg.norm(ee_pos - target_pos)
         
-        # Track minimum distance
+        # Track minimum distance (for logging)
         self.min_distance = min(self.min_distance, distance)
         
-        # Reward components
-        distance_reward = -DISTANCE_WEIGHT * distance
-        step_penalty = -STEP_PENALTY
+        # SIMPLE BINARY REWARD (like reference project)
+        if distance <= GOAL_THRESHOLD:
+            reward = SUCCESS_REWARD  # +10
+            done = True
+            rospy.loginfo(f"🎉 GOAL REACHED! Distance: {distance*100:.2f}cm")
+        else:
+            reward = STEP_REWARD  # -1
+            done = False
         
-        # Success bonus
-        success = distance < GOAL_THRESHOLD
-        success_bonus = SUCCESS_BONUS if success else 0.0
-        
-        # Total reward
-        reward = distance_reward + step_penalty + success_bonus
-        
-        # Episode done ONLY if goal reached (not on max steps - that's handled in training loop)
-        done = success
-        
+        # Info for debugging
         info = {
             'distance': distance,
             'min_distance': self.min_distance,
-            'success': success,
+            'success': done,
             'steps': self.episode_steps
         }
         
@@ -360,6 +404,7 @@ def manual_test_mode(env_wrapper):
     rospy.loginfo("=" * 70)
     rospy.loginfo("📝 Commands:")
     rospy.loginfo("  - Enter joint angles (e.g., '0.1 0 0 0') to move robot")
+    rospy.loginfo("  - Type 'reset' or 'r' to reset robot to home + move target")
     rospy.loginfo("  - Type 'clear' or 'c' to erase trajectory drawing")
     rospy.loginfo("  - Press Enter to exit manual mode")
     rospy.loginfo("=" * 70)
@@ -368,7 +413,7 @@ def manual_test_mode(env_wrapper):
         try:
             print("\nEnter 4 joint angles in radians (space-separated):")
             print("Example: 0.1 0 0 0")
-            print("Or 'clear'/'c' to erase drawing, or Enter to exit")
+            print("Or 'reset'/'r' to reset, 'clear'/'c' to erase drawing, or Enter to exit")
             
             user_input = input("Joint angles: ").strip()
             
@@ -376,8 +421,19 @@ def manual_test_mode(env_wrapper):
                 rospy.loginfo("Exiting manual test mode...")
                 break
             
+            # Check for reset command
+            if user_input.lower() in ['reset', 'r', 'restart']:
+                print("🔄 Resetting environment (robot to home + new target position)...")
+                env_wrapper.reset()
+                state = env_wrapper.get_state()
+                target_pos = state[11:14]
+                print(f"✅ Environment reset!")
+                print(f"   Robot moved to home: [0°, 0°, 0°, 90°]")
+                print(f"   New target position: {np.round(target_pos, 4)} m")
+                continue
+            
             # Check for clear command
-            if user_input.lower() in ['clear', 'c', 'erase', 'reset']:
+            if user_input.lower() in ['clear', 'c', 'erase']:
                 env_wrapper.env.clear_trajectory()
                 traj_info = env_wrapper.env.get_trajectory_info()
                 print(f"✅ Trajectory cleared! (Had {traj_info['num_points']} points)")
@@ -469,6 +525,20 @@ def manual_test_mode(env_wrapper):
             print(f"Position reached: {'✅ YES' if position_ok else '❌ NO'} (tolerance: ±{tolerance} rad = ±{np.degrees(tolerance):.1f}°)")
             print(f"Robot stopped:    {'✅ YES' if velocity_ok else '⚠️  OSCILLATING'} (max vel: {max_vel:.4f} rad/s)")
             print(f"Distance improved: {dist_before - dist_after:.4f}m")
+            
+            # CHECK FOR GOAL REACHED (like RL training)
+            # Note: Distance is to SPHERE CENTER (sphere radius = 1cm)
+            if dist_after <= GOAL_THRESHOLD:
+                print(f"\n🎉🎉🎉 GOAL REACHED! 🎉🎉🎉")
+                print(f"    Distance to center: {dist_after*100:.2f}cm ≤ {GOAL_THRESHOLD*100:.0f}cm threshold")
+                print(f"    Sphere radius: 1cm")
+                print(f"    Reward would be: +{SUCCESS_REWARD}")
+            else:
+                print(f"\n❌ Goal not reached yet")
+                print(f"    Distance to center: {dist_after*100:.2f}cm > {GOAL_THRESHOLD*100:.0f}cm threshold")
+                print(f"    Sphere radius: 1cm")
+                print(f"    Need to get closer by: {(dist_after - GOAL_THRESHOLD)*100:.2f}cm")
+                print(f"    Reward would be: {STEP_REWARD}")
             
             # Show trajectory info
             traj_info = env_wrapper.env.get_trajectory_info()

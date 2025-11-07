@@ -1,0 +1,20 @@
+<!-- 
+Launch Gazebo with RViz for Trajectory Visualization
+This shows both the Gazebo simulation AND the RViz visualization of the trajectory
+-->
+
+<launch>
+  
+  <!-- Launch the main Gazebo simulation -->
+  <include file="$(find new_robot_arm_urdf)/launch/robot_4dof_rl_gazebo.launch">
+    <arg name="gui" value="true"/>
+  </include>
+  
+  <!-- Launch RViz with trajectory visualization config -->
+  <node name="rviz" pkg="rviz" type="rviz" 
+        args="-d $(find new_robot_arm_urdf)/rviz/trajectory_view.rviz"
+        output="screen"/>
+  
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"/>
+
+</launch>
