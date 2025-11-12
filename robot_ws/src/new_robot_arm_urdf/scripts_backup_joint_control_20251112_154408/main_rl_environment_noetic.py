@@ -96,7 +96,7 @@ import numpy as np
 import random
 import time
 from typing import Tuple, Optional
-from geometry_msgs.msg import Point, Pose, Quaternion, Twist, Vector3
+from geometry_msgs.msg import Point, Pose, Quaternion
 from sensor_msgs.msg import JointState
 from gazebo_msgs.msg import ModelStates  
 from gazebo_msgs.srv import SetModelState, SetModelStateRequest
@@ -147,14 +147,9 @@ class RLEnvironmentNoetic:
         self.joint_velocities = [0.0, 0.0, 0.0, 0.0]
         
         # Target sphere state
-        self.target_x = 0.15  # Drawing surface X position (can be changed!)
-        self.target_y = 0.0
-        self.target_z = 0.15
-        
-        # Legacy compatibility (keep old names pointing to new ones)
-        self.pos_sphere_x = 0.15
+        self.pos_sphere_x = 0.0
         self.pos_sphere_y = 0.0
-        self.pos_sphere_z = 0.15
+        self.pos_sphere_z = 0.0
         
         # State readiness flag
         self.data_ready = False
@@ -174,45 +169,6 @@ class RLEnvironmentNoetic:
              np.pi/2 - SAFETY_MARGIN,  # Joint3: +85°
              np.pi   - SAFETY_MARGIN   # Joint4: 175°
         ])
-        
-        # IK success tracking for state
-        self.last_ik_success = 1.0  # Initialize as successful
-        
-        # RL Spaces (Gym-compatible)
-        # ACTION SPACE: 2D target position on drawing surface (Y, Z)
-        # Agent outputs target position, IK converts to joint angles
-        from gym import spaces
-        self.action_space = spaces.Box(
-            low=np.array([-0.09, 0.05]),      # [Y_min, Z_min] from validated workspace
-            high=np.array([0.09, 0.187]),     # [Y_max, Z_max] (conservative 95% zone)
-            dtype=np.float32
-        )
-        rospy.loginfo(f"📐 Action space: 2D target position [Y, Z]")
-        rospy.loginfo(f"   Y range: [-9cm, +9cm], Z range: [5cm, 18.7cm]")
-        
-        # OBSERVATION SPACE: 15D state
-        # [robot_xyz(3), joints(4), target_xyz(3), dist_xyz(3), dist_3d(1), ik_success(1)]
-        self.observation_space = spaces.Box(
-            low=np.array([
-                0.0,   -0.20,  0.0,                              # robot_xyz min
-                -np.pi/2, -np.pi/2, -np.pi/2, 0.0,              # joint limits min
-                0.0,   -0.20,  0.0,                              # target_xyz min
-                -0.50, -0.50, -0.50,                             # dist_xyz min
-                0.0,                                             # dist_3d min
-                0.0                                              # ik_success min (0=failed)
-            ]),
-            high=np.array([
-                0.30,   0.20,  0.30,                             # robot_xyz max
-                np.pi/2, np.pi/2, np.pi/2, np.pi,               # joint limits max
-                0.30,   0.20,  0.30,                             # target_xyz max
-                0.50,   0.50,  0.50,                             # dist_xyz max
-                1.0,                                             # dist_3d max
-                1.0                                              # ik_success max (1=success)
-            ]),
-            dtype=np.float32
-        )
-        rospy.loginfo(f"📊 Observation space: 15D state")
-        rospy.loginfo(f"   [robot_xyz(3), joints(4), target_xyz(3), dist_xyz(3), dist_3d(1), ik_flag(1)]")
         
         # TF2 for end-effector position tracking
         self.tf_buffer = tf2_ros.Buffer()
@@ -242,8 +198,8 @@ class RLEnvironmentNoetic:
         self._setup_service_clients()  
         self._setup_subscribers()
         
-        # Note: Target position will be randomized during first reset_environment() call
-        # Skipping initial randomization to avoid blocking during initialization
+        # Initial target randomization
+        self._reset_target_position()
         
         rospy.loginfo("✅ Visual RL Environment initialized for 4DOF robot!")
     
@@ -336,15 +292,9 @@ class RLEnvironmentNoetic:
                 sphere_index = msg.name.index('my_sphere')
                 sphere_pose = msg.pose[sphere_index]
                 
-                # Update target position using new variable names
-                self.target_x = sphere_pose.position.x
-                self.target_y = sphere_pose.position.y
-                self.target_z = sphere_pose.position.z
-                
-                # Also update legacy variables for compatibility
-                self.pos_sphere_x = self.target_x
-                self.pos_sphere_y = self.target_y
-                self.pos_sphere_z = self.target_z
+                self.pos_sphere_x = sphere_pose.position.x
+                self.pos_sphere_y = sphere_pose.position.y
+                self.pos_sphere_z = sphere_pose.position.z
                 
                 # Mark data as ready when we have both robot and target states
                 if hasattr(self, 'joint_positions') and len(self.joint_positions) == 4:
@@ -461,28 +411,19 @@ class RLEnvironmentNoetic:
 ```
         Get current environment state for RL agent
         
-        State vector for 4DOF robot (15 elements total):
-        - End-effector position (3): [robot_x, robot_y, robot_z]
+        State vector for 4DOF robot (10 elements total):
+        - End-effector position (3): [x, y, z] 
         - Joint positions (4): [joint1, joint2, joint3, joint4]
-        - Target position (3): [target_x, target_y, target_z]
-        - Distance to target (3): [dist_x, dist_y, dist_z]
-        - Euclidean distance (1): [dist_3d]
-        - IK success flag (1): [ik_success] (1.0=success, 0.0=failed)
+        - Target position (3): [sphere_x, sphere_y, sphere_z]
         
         Returns:
-            numpy array of state (15D) or None if not ready
+            numpy array of state or None if not ready
         """
         if not self.data_ready:
             rospy.logdebug("State not ready yet...")
             return None
             
         try:
-            # Calculate distances
-            dist_x = self.target_x - self.robot_x
-            dist_y = self.target_y - self.robot_y
-            dist_z = self.target_z - self.robot_z
-            dist_3d = np.sqrt(dist_x**2 + dist_y**2 + dist_z**2)
-            
             state = np.array([
                 # End-effector position (3 elements)
                 self.robot_x, self.robot_y, self.robot_z,
@@ -490,13 +431,7 @@ class RLEnvironmentNoetic:
                 self.joint_positions[0], self.joint_positions[1], 
                 self.joint_positions[2], self.joint_positions[3],
                 # Target sphere position (3 elements)
-                self.target_x, self.target_y, self.target_z,
-                # Distance vector to target (3 elements)
-                dist_x, dist_y, dist_z,
-                # Euclidean distance (1 element)
-                dist_3d,
-                # IK success flag (1 element)
-                self.last_ik_success
+                self.pos_sphere_x, self.pos_sphere_y, self.pos_sphere_z
             ], dtype=np.float32)
             
             return state
@@ -528,83 +463,6 @@ class RLEnvironmentNoetic:
         if self.data_ready and len(self.joint_velocities) == 4:
             return np.array(self.joint_velocities, dtype=np.float32)
         return None
-    
-    def execute_target_action(self, action: np.ndarray) -> tuple:
-        """
-        Execute target-based action with IK conversion.
-        
-        NEW ARCHITECTURE: Agent outputs target position [Y, Z], IK computes joints.
-        This simplifies learning - agent focuses on task strategy, not kinematics.
-        
-        Args:
-            action: numpy array [target_y, target_z] in METERS
-            
-        Returns:
-            tuple: (success: bool, ik_success: bool, ik_error: float, ik_penalty: float)
-                - success: True if robot reached joint target after IK
-                - ik_success: True if IK found valid solution
-                - ik_error: Position error from IK solver (meters)
-                - ik_penalty: Reward penalty for IK failure (0.0 if success, -5.0 if fail)
-        """
-        if len(action) != 2:
-            rospy.logerr(f"❌ Target action must have 2 elements [Y, Z], got {len(action)}")
-            return False, False, float('inf'), -5.0
-        
-        # Extract target position (X is fixed at drawing surface)
-        target_y, target_z = float(action[0]), float(action[1])
-        target_x = 0.15  # Drawing surface (15cm from base)
-        
-        rospy.loginfo(f"🎯 Target requested: X={target_x:.3f}, Y={target_y:.3f}, Z={target_z:.3f}")
-        
-        # Import IK solver
-        try:
-            from constrained_ik import constrained_ik
-        except ImportError as e:
-            rospy.logerr(f"❌ Failed to import constrained_ik: {e}")
-            return False, False, float('inf'), -5.0
-        
-        # Call IK solver to convert target → joints
-        try:
-            # Use current joints as initial guess for continuity
-            initial_guess = np.array(self.joint_positions[:4]) if len(self.joint_positions) == 4 else None
-            
-            joint_angles, ik_success, ik_error, x_error = constrained_ik(
-                target_y, target_z, 
-                initial_guess=initial_guess,
-                tolerance=0.005,  # 5mm accuracy
-                max_iterations=200
-            )
-            
-            # Log IK result
-            if ik_success:
-                rospy.loginfo(f"✅ IK SUCCESS: joints = {np.rad2deg(joint_angles)} degrees, error = {ik_error*1000:.2f}mm")
-            else:
-                rospy.logwarn(f"⚠️ IK FAILED: error = {ik_error*1000:.2f}mm, x_error = {x_error*1000:.2f}mm")
-            
-        except Exception as e:
-            rospy.logerr(f"❌ IK solver crashed: {e}")
-            return False, False, float('inf'), -5.0
-        
-        # Update IK success flag for next state observation
-        self.last_ik_success = 1.0 if ik_success else 0.0
-        
-        # Check if IK solution is good enough
-        if ik_success and ik_error < 0.005:  # 5mm threshold
-            # Execute the joint angles using existing method
-            rospy.loginfo(f"   Executing joints: {np.rad2deg(joint_angles)} degrees")
-            execution_success = self.execute_action(joint_angles)
-            
-            if execution_success:
-                rospy.loginfo("✅ Target action executed successfully!")
-                return True, True, ik_error, 0.0  # No penalty
-            else:
-                rospy.logwarn("⚠️ Joint execution failed (but IK was valid)")
-                return False, True, ik_error, 0.0  # IK was good, execution issue
-        else:
-            # IK failed or error too high - target unreachable
-            rospy.logwarn(f"❌ Target unreachable or IK error too high ({ik_error*1000:.1f}mm)")
-            ik_penalty = -5.0  # Penalty for unreachable targets
-            return False, False, ik_error, ik_penalty
     
     def execute_action(self, action: np.ndarray) -> bool:
         """
@@ -908,13 +766,13 @@ class RLEnvironmentNoetic:
         # Analysis: 120,701 points tested, 29,349 reachable (24.3% success rate)
         # All boundaries respect joint limits: ±85° for J1-3, 5°-175° for J4
         
-        surface_x = 0.15  # Fixed at 15cm - matches workspace analysis exactly
+        surface_x = 0.15 - 0.008  # 8mm in front of surface (15cm - 8mm = 14.2cm)
         
         # CONSERVATIVE workspace (95% IK success rate) - RECOMMENDED for RL
         # Validated by workspace_analyzer_constrained.py with joint limit enforcement
         surface_y_min = -0.09    # -9cm from center (validated: -9.01cm)
         surface_y_max = 0.09     # +9cm from center (validated: +9.09cm)
-        surface_z_min = 0.05     # 5cm above ground (validated: 5.0cm)
+        surface_z_min = 0.05     # 5cm above ground (validated: 5.0cm) - EXPANDED from 12cm!
         surface_z_max = 0.187    # 18.7cm above ground (validated: 18.7cm)
         
         # Benefits of new bounds vs old (12-18cm):
@@ -934,23 +792,14 @@ class RLEnvironmentNoetic:
             sphere_y = 0.0
             sphere_z = 0.15  # Center of validated Z range (5-18.7cm)
         
-        # Prepare SetModelState request
         request = SetModelStateRequest()
         request.model_state.model_name = 'my_sphere'
         request.model_state.reference_frame = 'world'
-        
-        # Set pose
         request.model_state.pose = Pose()
         request.model_state.pose.position = Point(x=sphere_x, y=sphere_y, z=sphere_z)
         request.model_state.pose.orientation = Quaternion(x=0, y=0, z=0, w=1)
-        
-        # CRITICAL FIX: Set twist to zero (clear velocity to prevent physics state issues)
-        request.model_state.twist = Twist()
-        request.model_state.twist.linear = Vector3(x=0.0, y=0.0, z=0.0)
-        request.model_state.twist.angular = Vector3(x=0.0, y=0.0, z=0.0)
-        
         try:
-            rospy.loginfo(f"🎯 Target: [{sphere_x:.3f}, {sphere_y:+.3f}, {sphere_z:.3f}] (Workspace: Y±9cm, Z=5-18.7cm)")
+            rospy.loginfo(f"🎯 Target: [{sphere_x:.3f}, {sphere_y:.3f}, {sphere_z:.3f}] (Workspace: Y±9cm, Z=5-18.7cm)")
             response = self.reset_target_client(request)
             if response.success:
                 rospy.loginfo("✅ Target sphere positioned on drawing surface")
@@ -1009,18 +858,18 @@ class RLEnvironmentNoetic:
         """Get information about action space for RL algorithm"""
         return {
             'type': 'continuous',
-            'shape': (2,),  # 2D target position [Y, Z] on drawing surface
-            'low': np.array([-0.09, 0.05]),  # [Y_min, Z_min] in meters
-            'high': np.array([0.09, 0.187]),  # [Y_max, Z_max] in meters  
-            'description': 'Target position [Y, Z] on drawing surface at X=0.15m'
+            'shape': (4,),  # 4DOF robot
+            'low': self.joint_limits_low,
+            'high': self.joint_limits_high,
+            'joint_names': ['Joint1', 'Joint2', 'Joint3', 'Joint4']
         }
     
     def get_observation_space_info(self) -> dict:
         """Get information about observation space for RL algorithm"""  
         return {
             'type': 'continuous',
-            'shape': (15,),  # 3 (robot_xyz) + 4 (joints) + 3 (target_xyz) + 3 (dist_xyz) + 1 (dist_3d) + 1 (ik_flag)
-            'description': 'robot_xyz + joints + target_xyz + dist_xyz + dist_3d + ik_flag'
+            'shape': (10,),  # 3 (end-eff) + 4 (joints) + 3 (target) = 10
+            'description': 'end_effector_xyz + joint_positions + target_xyz'
         }
     
     # ========================================================================
@@ -1045,7 +894,7 @@ class RLEnvironmentNoetic:
         Returns:
             numpy array [x, y, z] of target sphere position in meters
         """
-        return np.array([self.target_x, self.target_y, self.target_z])
+        return np.array([self.pos_sphere_x, self.pos_sphere_y, self.pos_sphere_z])
     
     # ========================================================================
     # SHUTDOWN

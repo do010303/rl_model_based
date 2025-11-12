@@ -1,0 +1,43 @@
+ROBOT WORKSPACE ANALYSIS REPORT
+X = 0.15m (FIXED AT DRAWING SURFACE)
+
+DIMENSIONS:
+  Y range: [-10.60, +10.70] cm (width: 21.30 cm)
+  Z range: [3.00, 19.70] cm (height: 16.70 cm)
+
+CENTER:
+  Y: +0.02 cm
+  Z: 10.48 cm
+  3D position: (15.0, +0.02, 10.48) cm
+
+AREA:
+  Total: 293.49 cm²
+  Points tested: 120,701
+  Points reachable: 29,349
+  Success rate: 24.3%
+
+MAXIMUM REACH:
+  From center: 11.26 cm
+  Farthest point: Y=-9.40 cm, Z=4.30 cm
+
+SHAPE:
+  Aspect ratio (Y/Z): 1.28
+  Type: Landscape (wider)
+
+RECOMMENDED SAFE WORKSPACES:
+  Ultra-conservative (99% success):
+    Y: [-7.42, +7.49] cm
+    Z: [7.00, 17.70] cm
+
+  Conservative (95% success):
+    Y: [-9.01, +9.09] cm
+    Z: [5.00, 18.70] cm
+
+  Moderate (90% success):
+    Y: [-10.07, +10.16] cm
+    Z: [4.00, 19.70] cm
+
+ANALYSIS PARAMETERS:
+  Resolution: 1.0mm × 1.0mm
+  IK tolerance: 5.0mm
+  X tolerance: 5.0mm

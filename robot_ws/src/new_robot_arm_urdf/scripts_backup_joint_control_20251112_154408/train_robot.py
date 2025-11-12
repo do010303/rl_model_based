@@ -145,63 +145,75 @@ class GazeboRLWrapper:
     """
     Wrapper for RLEnvironmentNoetic that provides Gym-like interface
     
-    UPDATED ARCHITECTURE (v2):
+    CONSTRAINED APPROACH:
     - Agent outputs (Y, Z) positions for end-effector (2D action space)
     - X is FIXED at 0.15m (drawing surface)
-    - Environment's execute_target_action() handles IK conversion automatically
-    - State includes full context: robot_xyz, joints, target_xyz, distances, IK status (15D)
+    - IK solver converts (X=0.15, Y, Z) → joint angles
+    - Robot reaches targets on vertical plane
     """
     
     def __init__(self, env):
         self.env = env
-        self.state_dim = 15  # UPDATED: robot_xyz(3) + joints(4) + target_xyz(3) + dist_xyz(3) + dist_3d(1) + ik_flag(1)
+        self.state_dim = 11  # [4 joints, 4 vels, 3 target_yz_relative]
         self.action_dim = 2  # Only Y and Z control!
         
         # Action limits (Y and Z positions on drawing surface)
-        # Conservative workspace for 95% IK success rate (from workspace analysis)
-        self.y_limits = np.array([-0.09, 0.09])  # ±9cm (validated workspace)
-        self.z_limits = np.array([0.05, 0.187])  # 5-18.7cm (validated workspace)
+        # Conservative workspace for 94% IK success rate
+        self.y_limits = np.array([-0.10, 0.10])  # ±10cm (was ±14cm)
+        self.z_limits = np.array([0.12, 0.18])   # 12-18cm (was 8-18cm, increased to prevent robot breaking at low Z)
         
         # Track episode stats
         self.episode_reward = 0
         self.episode_steps = 0
         self.min_distance = float('inf')
         
-        rospy.loginfo("✅ GazeboRLWrapper initialized (TARGET CONTROL v2 - IK in Environment)")
+        rospy.loginfo("✅ GazeboRLWrapper initialized (CONSTRAINED IK MODE)")
         rospy.loginfo(f"   Surface X: {SURFACE_X}m (FIXED)")
         rospy.loginfo(f"   Action space: 2D (Y, Z only)")
-        rospy.loginfo(f"   State space: 15D (full context with IK feedback)")
         rospy.loginfo(f"   Y range: [{self.y_limits[0]}, {self.y_limits[1]}]")
         rospy.loginfo(f"   Z range: [{self.z_limits[0]}, {self.z_limits[1]}]")
     
     def get_state(self):
         """
-        Get current state from environment (15D state with full context)
+        Get current state for CONSTRAINED task
         
-        State vector (15D) - directly from environment.get_state():
-        - 3 robot XYZ (end-effector position)
+        State vector (11D):
         - 4 joint angles
-        - 3 target XYZ
-        - 3 distance XYZ (target - robot)
-        - 1 distance 3D (Euclidean)
-        - 1 IK success flag (1.0 = success, 0.0 = failure)
+        - 4 joint velocities  
+        - 3 relative target position (target_Y - ee_Y, target_Z - ee_Z, distance_YZ)
+        
+        Note: X is not in state because it's FIXED at surface position!
         
         Returns:
-            15D numpy array
+            11D numpy array
         """
-        # Use environment's get_state() method which now returns 15D
-        state = self.env.get_state()
+        # Get joint positions and velocities (FAST with persistent subscriber)
+        joint_positions, joint_velocities = get_joint_positions_direct(timeout=0.5)
         
-        if state is None:
-            rospy.logwarn("⚠️ Could not get state from environment, using zeros")
-            state = np.zeros(15, dtype=np.float32)
+        if joint_positions is None or joint_velocities is None:
+            rospy.logwarn("⚠️ Could not get joint states, using zeros")
+            joint_positions = np.zeros(4)
+            joint_velocities = np.zeros(4)
         
-        # SAFETY: Check for NaN/Inf
-        if not np.isfinite(state).all():
-            rospy.logerr(f"🛑 INVALID STATE from environment! Contains NaN/Inf")
-            rospy.logerr(f"   State: {state}")
-            rospy.logerr("   Replacing with safe zero state...")
-            state = np.zeros(15, dtype=np.float32)
+        # Get end-effector and target positions from environment
+        ee_pos = np.array(self.env.ee_position) if hasattr(self.env, 'ee_position') else np.zeros(3)
+        target_pos = np.array(self.env.target_position) if hasattr(self.env, 'target_position') else np.zeros(3)
+        
+        # Extract ONLY Y and Z (X is fixed at surface!)
+        ee_y, ee_z = ee_pos[1], ee_pos[2]
+        target_y, target_z = target_pos[1], target_pos[2]
+        
+        # Relative target position in Y-Z plane
+        delta_y = target_y - ee_y
+        delta_z = target_z - ee_z
+        distance_yz = np.sqrt(delta_y**2 + delta_z**2)
+        
+        # Combine into state vector
+        state = np.concatenate([
+            joint_positions,           # 4D
+            joint_velocities,          # 4D
+            [delta_y, delta_z, distance_yz]  # 3D (relative target in Y-Z)
+        ])
         
         return state.astype(np.float32)
     
@@ -537,27 +549,27 @@ class GazeboRLWrapper:
 # ============================================================================
 
 def manual_test_mode(env_wrapper):
-    """Interactive manual testing mode - test 4 joint angles with forward kinematics"""
+    """Interactive manual testing mode - test Y-Z positions with constrained IK"""
     rospy.loginfo("=" * 70)
-    rospy.loginfo("🎮 MANUAL TEST MODE (FORWARD KINEMATICS - 4 JOINT CONTROL)")
+    rospy.loginfo("🎮 MANUAL TEST MODE (CONSTRAINED IK - CONSERVATIVE WORKSPACE)")
     rospy.loginfo("=" * 70)
     rospy.loginfo("📝 Commands:")
-    rospy.loginfo("  - Enter 4 joint angles in DEGREES (e.g., '10 20 15 90')")
-    rospy.loginfo("  - Joint limits: J1-3: ±85°, J4: 5-175°")
+    rospy.loginfo("  - Enter Y Z positions (e.g., '0.05 0.13') to move end-effector")
+    rospy.loginfo(f"  - X is FIXED at {SURFACE_X}m (drawing surface)")
     rospy.loginfo("  - Type 'reset' or 'r' to reset robot to home + move target")
     rospy.loginfo("  - Type 'clear' or 'c' to erase trajectory drawing")
     rospy.loginfo("  - Press Enter to exit manual mode")
     rospy.loginfo("=" * 70)
-    rospy.loginfo("💡 TIP: Try home position first: 0 0 0 90")
+    rospy.loginfo(f"CONSERVATIVE ranges (94% success): Y∈[{env_wrapper.y_limits[0]:.2f}, {env_wrapper.y_limits[1]:.2f}]m, Z∈[{env_wrapper.z_limits[0]:.2f}, {env_wrapper.z_limits[1]:.2f}]m")
     rospy.loginfo("=" * 70)
     
     while True:
         try:
-            print("\nEnter 4 joint angles in DEGREES (space-separated):")
-            print("Example: 10 20 15 90  (Joint1=10°, Joint2=20°, Joint3=15°, Joint4=90°)")
+            print("\nEnter Y Z positions in meters (space-separated):")
+            print(f"Example: 0.05 0.13  (will reach X={SURFACE_X}, Y=0.05, Z=0.13)")
             print("Or 'reset'/'r' to reset, 'clear'/'c' to erase drawing, or Enter to exit")
             
-            user_input = input("J1 J2 J3 J4 (degrees): ").strip()
+            user_input = input("Y Z: ").strip()
             
             if not user_input:
                 rospy.loginfo("Exiting manual test mode...")
@@ -581,39 +593,25 @@ def manual_test_mode(env_wrapper):
                 print(f"✅ Trajectory cleared! (Had {traj_info['num_points']} points)")
                 continue
             
-            # Parse joint angles in degrees
-            angles_str = user_input.split()
-            if len(angles_str) != 4:
-                print("❌ Please enter exactly 4 values (one for each joint)!")
+            # Parse Y Z positions
+            pos_str = user_input.split()
+            if len(pos_str) != 2:
+                print("❌ Please enter exactly 2 values (Y and Z)!")
                 continue
             
-            # Convert to degrees then radians
-            angles_deg = np.array([float(a) for a in angles_str])
-            target_joints = np.radians(angles_deg)
+            target_y = float(pos_str[0])
+            target_z = float(pos_str[1])
             
-            # Get joint limits from environment
-            joint_limits_low = env_wrapper.env.joint_limits_low
-            joint_limits_high = env_wrapper.env.joint_limits_high
-            
-            # Validate joint limits
-            violations = []
-            for i in range(4):
-                if target_joints[i] < joint_limits_low[i]:
-                    violations.append(f"J{i+1} too low: {angles_deg[i]:.1f}° < {np.degrees(joint_limits_low[i]):.1f}°")
-                elif target_joints[i] > joint_limits_high[i]:
-                    violations.append(f"J{i+1} too high: {angles_deg[i]:.1f}° > {np.degrees(joint_limits_high[i]):.1f}°")
-            
-            if violations:
-                print("❌ Joint limit violations:")
-                for v in violations:
-                    print(f"   {v}")
-                print(f"\nAllowed ranges:")
-                print(f"   J1-3: [{np.degrees(joint_limits_low[0]):.1f}°, {np.degrees(joint_limits_high[0]):.1f}°]")
-                print(f"   J4:   [{np.degrees(joint_limits_low[3]):.1f}°, {np.degrees(joint_limits_high[3]):.1f}°]")
+            # Validate ranges
+            if not (env_wrapper.y_limits[0] <= target_y <= env_wrapper.y_limits[1]):
+                print(f"❌ Y out of range! Must be in [{env_wrapper.y_limits[0]}, {env_wrapper.y_limits[1]}]")
+                continue
+            if not (env_wrapper.z_limits[0] <= target_z <= env_wrapper.z_limits[1]):
+                print(f"❌ Z out of range! Must be in [{env_wrapper.z_limits[0]}, {env_wrapper.z_limits[1]}]")
                 continue
             
             print(f"\n{'='*70}")
-            print(f"🎯 Target Joint Angles: {np.round(angles_deg, 1)}°")
+            print(f"🎯 Target EE position: X={SURFACE_X}, Y={target_y:+.3f}, Z={target_z:.3f}")
             print(f"{'='*70}")
             
             # Get state before
@@ -623,24 +621,28 @@ def manual_test_mode(env_wrapper):
             joints_before, vels_before = get_joint_positions_direct()
             dist_before = np.linalg.norm(ee_pos_before - target_pos)
             
-            # Use FK to predict end-effector position
-            predicted_x, predicted_y, predicted_z = fk(target_joints)
-            predicted_ee = np.array([predicted_x, predicted_y, predicted_z])
-            predicted_dist = np.linalg.norm(predicted_ee - target_pos)
-            
             print(f"\nBEFORE ACTION:")
-            print(f"  Current joints:   {np.round(np.degrees(joints_before), 1)}° = {np.round(joints_before, 3)} rad")
+            print(f"  Current joints:   {np.round(joints_before, 3)} rad = {np.round(np.degrees(joints_before), 1)}°")
             print(f"  End-effector:     {np.round(ee_pos_before, 4)} m")
             print(f"  Target sphere:    {np.round(target_pos, 4)} m")
             print(f"  Distance to goal: {dist_before:.4f}m ({dist_before*100:.2f}cm)")
             
-            print(f"\nFORWARD KINEMATICS PREDICTION:")
-            print(f"  Target joints:    {np.round(angles_deg, 1)}°")
-            print(f"  Predicted EE:     {np.round(predicted_ee, 4)} m")
-            print(f"  Predicted dist:   {predicted_dist:.4f}m ({predicted_dist*100:.2f}cm)")
-            print(f"  X position:       {predicted_x:.4f}m (surface at {SURFACE_X}m)")
-            if abs(predicted_x - SURFACE_X) > 0.01:
-                print(f"  ⚠️  OFF SURFACE by {abs(predicted_x - SURFACE_X)*100:.1f}cm!")
+            # Solve IK
+            print(f"\n⏳ Solving IK for (X={SURFACE_X}, Y={target_y:+.3f}, Z={target_z:.3f})...")
+            target_joints, ik_success, ik_error, x_error = constrained_ik(
+                target_y, target_z,
+                initial_guess=joints_before
+            )
+            
+            if not ik_success:
+                print(f"⚠️  IK solution not perfect! Error: {ik_error*1000:.1f}mm, X error: {x_error*1000:.1f}mm")
+                print(f"   Continuing with best-effort solution...")
+            else:
+                print(f"✅ IK solved! Error: {ik_error*1000:.1f}mm")
+            
+            print(f"\n🎯 Calculated joint angles:")
+            print(f"   {target_joints} rad")
+            print(f"   {np.round(np.degrees(target_joints), 1)}°")
             
             # Send action
             print(f"\n⏳ Executing action...")
@@ -670,17 +672,16 @@ def manual_test_mode(env_wrapper):
             max_joint_error = np.max(joint_errors)
             max_vel = np.max(np.abs(vels_after)) if vels_after is not None else 0.0
             
-            # FK prediction accuracy
-            fk_error = np.linalg.norm(ee_pos_after - predicted_ee)
+            # Check X constraint
+            x_deviation = abs(ee_pos_after[0] - SURFACE_X)
             
             elapsed = time.time() - start_time
             
             # Print results
             print(f"\nAFTER ACTION:")
-            print(f"  Final joints:     {np.round(np.degrees(joints_after), 1)}° = {np.round(joints_after, 3)} rad")
+            print(f"  Final joints:     {np.round(joints_after, 3)} rad = {np.round(np.degrees(joints_after), 1)}°")
             print(f"  End-effector:     {np.round(ee_pos_after, 4)} m")
-            print(f"  FK prediction:    {np.round(predicted_ee, 4)} m")
-            print(f"  FK error:         {fk_error*1000:.2f}mm")
+            print(f"  X constraint:     {'✅ SATISFIED' if x_deviation < 0.01 else f'⚠️ VIOLATED ({x_deviation*1000:.1f}mm off)'}")
             print(f"  Distance to goal: {dist_after:.4f}m ({dist_after*100:.2f}cm)")
             print(f"  EE moved:         {ee_movement:.4f}m ({ee_movement*100:.2f}cm)")
             print(f"  Joints moved:     {joint_movement:.4f}rad ({np.degrees(joint_movement):.1f}°)")
@@ -843,11 +844,9 @@ def train_ddpg_gazebo():
     rospy.loginfo(f"   Estimated time: ~{num_episodes * max_steps * ACTION_WAIT_TIME / 60:.1f} minutes")
     rospy.loginfo("=" * 70)
     
-    # Create DDPG agent (15D state, 2D action for Y-Z control)
-    # State: robot_xyz(3) + joints(4) + target_xyz(3) + dist_xyz(3) + dist_3d(1) + ik_flag(1) = 15D
-    # Action: target_yz(2) - agent outputs target position, IK computes joints
+    # Create DDPG agent (11D state, 2D action for Y-Z control)
     rospy.loginfo("🤖 Creating DDPG agent...")
-    agent = DDPGAgentGazebo(state_dim=15, n_actions=2, max_action=1.0, min_action=-1.0)
+    agent = DDPGAgentGazebo(state_dim=11, n_actions=2, max_action=1.0, min_action=-1.0)
     
     # Create checkpoint directory
     checkpoint_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'checkpoints', 'ddpg_gazebo')

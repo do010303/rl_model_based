@@ -4,8 +4,23 @@
     <pose>0 0 0 0 0 0</pose>
     
     <link name="sphere_link">
-      <!-- No inertial - this is a visual-only marker -->
-      <gravity>0</gravity>  <!-- Disable gravity -->
+      <!-- Very light inertial properties since sphere is dynamic but should not affect physics -->
+      <inertial>
+        <mass>0.001</mass>  <!-- 1 gram - negligible mass -->
+        <inertia>
+          <ixx>0.000001</ixx>
+          <iyy>0.000001</iyy>
+          <izz>0.000001</izz>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyz>0</iyz>
+        </inertia>
+      </inertial>
+      
+      <gravity>0</gravity>  <!-- Disable gravity so sphere doesn't fall -->
+      
+      <!-- Enable kinematic mode - sphere is moved by external commands only (SetModelState) -->
+      <kinematic>true</kinematic>
       
       <!-- NO COLLISION - Robot can pass through it -->
       <!-- This allows the robot to reach the target without pushing the sphere -->
@@ -13,7 +28,7 @@
       <visual name="visual">
         <geometry>
           <sphere>
-            <radius>0.01</radius>  <!-- 1cm radius - small target marker -->
+            <radius>0.005</radius>  <!-- 0.5cm radius = 1cm diameter - precise target marker -->
           </sphere>
         </geometry>
         <material>
@@ -24,8 +39,10 @@
       </visual>
     </link>
     
-    <!-- Make the model static (cannot be pushed) -->
-    <static>true</static>
+    <!-- Make the model DYNAMIC but with fixed position via Gazebo physics 
+         This allows SetModelState to visually update the sphere position
+         BUT we disable physics interactions to prevent pushing -->
+    <static>false</static>
     
   </model>
 </sdf>

@@ -3,11 +3,18 @@
 Adapted from ROS2 robotic_arm_environment to ROS Noetic
 Based on my_doosan_pkg launch structure
 
+CONSERVATIVE WORKSPACE CONFIGURATION (94% IK Success Rate):
+- Drawing surface: X = 0.15m (FIXED)
+- Y range: ±0.10m (±10cm)
+- Z range: 0.08-0.18m (8-18cm)
+- Total workspace: 20cm × 10cm
+- IK success: ~94% (random), ~84% (grid)
+
 This launch file:
 1. Starts Gazebo with RL training world
 2. Loads and spawns 4DOF robot
 3. Starts ROS controllers
-4. Spawns target sphere for RL training
+4. Spawns target sphere at conservative workspace center
 5. Sets up complete visual RL environment
 -->
 
@@ -52,11 +59,14 @@ This launch file:
 
   <!-- Robot State Publisher -->
     <!-- Spawn target sphere for RL training on drawing surface -->
-    <!-- Surface is at Z=0.12m, sphere radius ~0.01m, so sphere center at Z=0.14m sits ON surface -->
-    <!-- X=0.15m (15cm) for better reachability -->
+    <!-- CONSERVATIVE WORKSPACE CONFIGURATION (94% IK Success Rate) -->
+    <!-- Drawing surface at X=0.15m (FIXED), Y ∈ [-0.10, 0.10], Z ∈ [0.08, 0.18] -->
+    <!-- Target spawns at center: X=0.15m, Y=0.0m, Z=0.13m -->
+    <!-- Note: Python script will randomly move sphere within conservative workspace -->
+    <!-- Sphere radius ~0.01m, center at Z=0.13m (middle of conservative range) -->
     <node name="spawn_sphere" pkg="gazebo_ros" type="spawn_model" 
       args="-file $(find new_robot_arm_urdf)/models/sdf/target_sphere/model.sdf 
-                  -sdf -model my_sphere -x 0.15 -y 0.0 -z 0.14" 
+                  -sdf -model my_sphere -x 0.15 -y 0.0 -z 0.13" 
       output="screen" respawn="false"/>
     <!-- No controllers, just world, robot, and target sphere/surface -->
 

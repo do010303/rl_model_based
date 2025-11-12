@@ -109,41 +109,150 @@
       <cast_shadows>0</cast_shadows>
     </light>
 
-    <!-- Drawing Surface for robot to reach targets -->
-    <!-- Positioned at reachable distance for drawing tasks -->
-    <!-- Drawing Surface for robot to reach targets -->
-    <!-- Positioned at 15cm from base, vertical plane for drawing tasks -->
-    <model name='drawing_surface'>
+    <!-- ================================================================ -->
+    <!-- WORKSPACE FRAME - Validated Conservative Zone (95% IK Success)  -->
+    <!-- ================================================================ -->
+    <!-- Frame shows the validated workspace boundaries from analysis:   -->
+    <!-- X = 0.15m (FIXED at drawing surface)                            -->
+    <!-- Y ∈ [-0.09, +0.09] m (±9cm)                                     -->
+    <!-- Z ∈ [0.05, 0.187] m (5cm to 18.7cm)                             -->
+    <!-- Total area: 18cm × 13.7cm rectangle                             -->
+    <!-- ================================================================ -->
+    
+    <model name='workspace_frame'>
       <static>1</static>
-      <pose frame=''>0.15 0 0.12 0 1.57079 0</pose>  <!-- 15cm from base, vertical plane -->
-      <link name='drawing_surface_link'>
-        <visual name='drawing_surface_visual'>
+      <pose frame=''>0.15 0 0.1185 0 0 0</pose>  <!-- Center of workspace: X=15cm, Y=0, Z=11.85cm -->
+      
+      <!-- Top Border (Z = 18.7cm) -->
+      <link name='top_border'>
+        <pose frame=''>0 0 0.0685 0 0 0</pose>  <!-- Offset from center: +6.85cm -->
+        <visual name='top_border_visual'>
           <geometry>
             <box>
-              <size>0.3 0.5 0.01</size>  <!-- 30cm height x 50cm width x 1cm thick -->
+              <size>0.005 0.18 0.005</size>  <!-- 5mm thick, 18cm wide, 5mm tall -->
             </box>
           </geometry>
           <material>
             <script>
               <uri>file://media/materials/scripts/gazebo.material</uri>
-              <name>Gazebo/White</name>  <!-- White drawing surface -->
+              <name>Gazebo/Green</name>
             </script>
-            <ambient>0.9 0.9 0.9 1</ambient>
-            <diffuse>0.9 0.9 0.9 1</diffuse>
+            <ambient>0.0 0.8 0.0 1</ambient>
+            <diffuse>0.0 0.8 0.0 1</diffuse>
           </material>
         </visual>
-        <collision name='drawing_surface_collision'>
+      </link>
+      
+      <!-- Bottom Border (Z = 5cm) -->
+      <link name='bottom_border'>
+        <pose frame=''>0 0 -0.0685 0 0 0</pose>  <!-- Offset from center: -6.85cm -->
+        <visual name='bottom_border_visual'>
           <geometry>
             <box>
-              <size>0.3 0.5 0.01</size>
+              <size>0.005 0.18 0.005</size>  <!-- 5mm thick, 18cm wide, 5mm tall -->
             </box>
           </geometry>
-        </collision>
+          <material>
+            <script>
+              <uri>file://media/materials/scripts/gazebo.material</uri>
+              <name>Gazebo/Green</name>
+            </script>
+            <ambient>0.0 0.8 0.0 1</ambient>
+            <diffuse>0.0 0.8 0.0 1</diffuse>
+          </material>
+        </visual>
       </link>
-    </model>    <!-- GUI settings -->
+      
+      <!-- Left Border (Y = -9cm) -->
+      <link name='left_border'>
+        <pose frame=''>0 -0.09 0 0 0 0</pose>  <!-- Offset from center: -9cm -->
+        <visual name='left_border_visual'>
+          <geometry>
+            <box>
+              <size>0.005 0.005 0.137</size>  <!-- 5mm thick, 5mm wide, 13.7cm tall -->
+            </box>
+          </geometry>
+          <material>
+            <script>
+              <uri>file://media/materials/scripts/gazebo.material</uri>
+              <name>Gazebo/Green</name>
+            </script>
+            <ambient>0.0 0.8 0.0 1</ambient>
+            <diffuse>0.0 0.8 0.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      
+      <!-- Right Border (Y = +9cm) -->
+      <link name='right_border'>
+        <pose frame=''>0 0.09 0 0 0 0</pose>  <!-- Offset from center: +9cm -->
+        <visual name='right_border_visual'>
+          <geometry>
+            <box>
+              <size>0.005 0.005 0.137</size>  <!-- 5mm thick, 5mm wide, 13.7cm tall -->
+            </box>
+          </geometry>
+          <material>
+            <script>
+              <uri>file://media/materials/scripts/gazebo.material</uri>
+              <name>Gazebo/Green</name>
+            </script>
+            <ambient>0.0 0.8 0.0 1</ambient>
+            <diffuse>0.0 0.8 0.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      
+      <!-- Optional: Transparent background panel to show workspace area -->
+      <link name='workspace_background'>
+        <pose frame=''>0 0 0 0 0 0</pose>
+        <visual name='workspace_background_visual'>
+          <geometry>
+            <box>
+              <size>0.001 0.18 0.137</size>  <!-- Very thin panel, 18cm × 13.7cm -->
+            </box>
+          </geometry>
+          <material>
+            <script>
+              <uri>file://media/materials/scripts/gazebo.material</uri>
+              <name>Gazebo/White</name>
+            </script>
+            <ambient>0.9 0.9 0.9 0.3</ambient>  <!-- Semi-transparent white -->
+            <diffuse>0.9 0.9 0.9 0.3</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+    
+    <!-- ================================================================ -->
+    <!-- WORKSPACE CENTER MARKER (Optional reference point)              -->
+    <!-- ================================================================ -->
+    <model name='workspace_center_marker'>
+      <static>1</static>
+      <pose frame=''>0.15 0 0.1185 0 0 0</pose>  <!-- Center of workspace -->
+      <link name='center_marker_link'>
+        <visual name='center_marker_visual'>
+          <geometry>
+            <sphere>
+              <radius>0.001</radius>  <!-- 1mm radius - very small point -->
+            </sphere>
+          </geometry>
+          <material>
+            <script>
+              <uri>file://media/materials/scripts/gazebo.material</uri>
+              <name>Gazebo/Blue</name>
+            </script>
+            <ambient>0.0 0.0 1.0 1</ambient>
+            <diffuse>0.0 0.0 1.0 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- GUI settings -->
     <gui fullscreen='0'>
       <camera name='user_camera'>
-        <pose frame=''>1.2 1.2 1.0 0 0.4 -2.3</pose>
+        <pose frame=''>0.6 0.6 0.5 0 0.4 -2.3</pose>  <!-- Better view of workspace frame -->
         <view_controller>orbit</view_controller>
         <projection_type>perspective</projection_type>
       </camera>
